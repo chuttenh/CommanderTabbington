@@ -29,7 +29,7 @@ struct SwitcherView: View {
                                         isSelected: index == appState.selectedIndex
                                     )
                                     .frame(width: itemWidth, height: itemHeight)
-                                    .id(index)
+                                    .id(app.id)
                                     .onTapGesture {
                                         appState.selectedIndex = index
                                         appState.commitSelection()
@@ -47,7 +47,7 @@ struct SwitcherView: View {
                                         subtitle: window.title
                                     )
                                     .frame(width: itemWidth, height: itemHeight)
-                                    .id(index)
+                                    .id(window.windowID)
                                     .onTapGesture {
                                         appState.selectedIndex = index
                                         appState.commitSelection()
@@ -58,7 +58,17 @@ struct SwitcherView: View {
                         .padding(.horizontal, 40)
                         .onChange(of: appState.selectedIndex) { newIndex in
                             withAnimation(.easeOut(duration: 0.15)) {
-                                proxy.scrollTo(newIndex, anchor: .center)
+                                if appState.mode == .perApp {
+                                    if appState.visibleApps.indices.contains(newIndex) {
+                                        let id = appState.visibleApps[newIndex].id
+                                        proxy.scrollTo(id, anchor: .center)
+                                    }
+                                } else {
+                                    if appState.visibleWindows.indices.contains(newIndex) {
+                                        let id = appState.visibleWindows[newIndex].id
+                                        proxy.scrollTo(id, anchor: .center)
+                                    }
+                                }
                             }
                         }
                     }
