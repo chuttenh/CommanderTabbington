@@ -125,15 +125,6 @@ class InputListener {
             // 4. ENABLE
             CGEvent.tapEnable(tap: tap, enable: true)
             print("✅ Input Listener Attached (Session Level). Waiting for events...")
-            
-            // Post-start diagnostic: if we don't see any keyboard events shortly, print guidance
-            self.receivedKeyboardEvent = false
-            self.postStartDiagnosticTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
-                guard let self = self else { return }
-                if !self.receivedKeyboardEvent {
-                    print("❗️ No keyboard events detected yet. If mouse events work but keys do not, verify Input Monitoring in System Settings and that Secure Keyboard Entry is OFF. If running under Xcode, add Xcode to Input Monitoring and relaunch.")
-                }
-            }
         }
     }
     
@@ -223,27 +214,63 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         if cmdActive && keyCode == listener.kVK_Tab {
             if listener.enableDiagnostics {
                 print("🛑 Suppressing Cmd+Tab keyUp (HID tap: \(listener.usingHIDTap))")
+                print("⬆️ keyUp Tab: hasCommand=\(hasCommand) cmdActive=\(cmdActive)")
             }
             return nil
         }
     }
-    
+
     // 4. KEYBOARD LOGIC - flagsChanged and command pressed logic remain unchanged
     if type == .flagsChanged {
         let flags = event.flags
         let isCmdNow = (flags.rawValue & CGEventFlags.maskCommand.rawValue) != 0
         
+        if listener.enableDiagnostics {
+            print("🎛️ flagsChanged: isCmdNow=\(isCmdNow) was=\(listener.isCommandPressed) flags=\(flags.rawValue)")
+        }
+        
+        // Log current switcher visibility
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            let visible = appDelegate.appState.isSwitcherVisible
+            if listener.enableDiagnostics {
+                print("👁️ isSwitcherVisible at flagsChanged: \(visible)")
+            }
+        }
+        
         listener.noteKeyboardEventReceived()
         
-        // If Command was released and the switcher is visible, commit selection
-        if listener.isCommandPressed && !isCmdNow {
-            if let appDelegate = NSApp.delegate as? AppDelegate {
-                let appState = appDelegate.appState
-                if appState.isSwitcherVisible {
+        // If Command is not held and the switcher is visible, commit selection
+        if !isCmdNow {
+            // Prefer using the listener's appState reference
+            if let appState = listener.appState {
+                let visible = appState.isSwitcherVisible
+                if listener.enableDiagnostics {
+                    print("👁️ isSwitcherVisible at flagsChanged: \(visible)")
+                }
+                if visible {
+                    if listener.enableDiagnostics { print("✅ Committing selection on Command release (flagsChanged via listener.appState)") }
                     DispatchQueue.main.async {
                         appState.commitSelection()
                     }
+                } else {
+                    if listener.enableDiagnostics { print("⏭️ Skipping commit: switcher not visible at Command release") }
                 }
+            } else if let appDelegate = NSApp.delegate as? AppDelegate {
+                let appState = appDelegate.appState
+                let visible = appState.isSwitcherVisible
+                if listener.enableDiagnostics {
+                    print("👁️ isSwitcherVisible at flagsChanged (fallback): \(visible)")
+                }
+                if visible {
+                    if listener.enableDiagnostics { print("✅ Committing selection on Command release (flagsChanged via AppDelegate)") }
+                    DispatchQueue.main.async {
+                        appState.commitSelection()
+                    }
+                } else {
+                    if listener.enableDiagnostics { print("⏭️ Skipping commit (fallback): switcher not visible at Command release") }
+                }
+            } else {
+                if listener.enableDiagnostics { print("❓ No AppState available on Command release") }
             }
         }
         listener.isCommandPressed = isCmdNow

@@ -82,24 +82,43 @@ class AppState: ObservableObject {
     /// Called when the user releases the modifier key (Cmd).
     /// Commits the selection and hides the UI.
     func commitSelection() {
-        guard isSwitcherVisible else { return }
+        // Diagnostics: entry log
+        print("commitSelection invoked. mode=\(mode) selectedIndex=\(selectedIndex) isVisible=\(isSwitcherVisible) apps=\(visibleApps.count) windows=\(visibleWindows.count)")
+        
+        // Ensure the switcher is actually visible
+        guard isSwitcherVisible else {
+            print("⚠️ commitSelection ignored: switcher not visible")
+            return
+        }
         
         // Hide UI immediately for responsiveness
         isSwitcherVisible = false
+        print("🫥 Hiding switcher overlay before activation")
         
         switch mode {
         case .perApp:
-            guard visibleApps.indices.contains(selectedIndex) else { return }
+            guard visibleApps.indices.contains(selectedIndex) else {
+                print("❌ Selection index out of range for visibleApps: index=\(selectedIndex) count=\(visibleApps.count)")
+                return
+            }
             let selectedApp = visibleApps[selectedIndex]
             print("Switching to app: \(selectedApp.appName) (PID: \(selectedApp.ownerPID))")
             if let app = selectedApp.owningApplication {
-                app.activate(options: .activateIgnoringOtherApps)
+                let success = app.activate(options: .activateIgnoringOtherApps)
+                print(success ? "✅ App activation requested successfully" : "⚠️ App activation returned false")
+            } else {
+                print("❓ No NSRunningApplication for selected app; cannot activate directly")
             }
         case .perWindow:
-            guard visibleWindows.indices.contains(selectedIndex) else { return }
+            guard visibleWindows.indices.contains(selectedIndex) else {
+                print("❌ Selection index out of range for visibleWindows: index=\(selectedIndex) count=\(visibleWindows.count)")
+                return
+            }
             let selectedWindow = visibleWindows[selectedIndex]
-            print("Switching to window: \(selectedWindow.title) (ID: \(selectedWindow.windowID))")
+            print("Switching to window: \(selectedWindow.title) (ID: \(selectedWindow.windowID)) of app \(selectedWindow.appName) (PID: \(selectedWindow.ownerPID))")
+            print("➡️ Requesting AccessibilityService to focus window")
             AccessibilityService.shared.focus(window: selectedWindow)
+            print("📣 Focus request sent to AccessibilityService")
         }
     }
     

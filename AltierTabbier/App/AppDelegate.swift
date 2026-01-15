@@ -106,8 +106,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         // Start keyboard hooks after UI bindings are ready
-        InputListener.shared.start()
         InputListener.shared.appState = appState
+        InputListener.shared.start()
         
         print("AltierTabbier started.")
     }
