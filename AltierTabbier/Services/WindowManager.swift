@@ -61,7 +61,9 @@ class WindowManager {
             windows.append(window)
         }
         
-        return windows
+        var sorted = windows
+        WindowRecents.shared.sortWindowsByRecency(&sorted)
+        return sorted
     }
     
     /// Returns one entry per running app that has at least one visible window.
@@ -90,13 +92,8 @@ class WindowManager {
             apps.append(app)
         }
 
-        // Sort by recent activation if available, fallback to name
-        apps.sort { a, b in
-            let aActive = a.owningApplication?.isActive == true
-            let bActive = b.owningApplication?.isActive == true
-            if aActive != bActive { return aActive && !bActive }
-            return a.appName.localizedCaseInsensitiveCompare(b.appName) == .orderedAscending
-        }
+        // Sort by recency (MRU), active-first, then name as tiebreaker
+        AppRecents.shared.sortAppsByRecency(&apps)
 
         return apps
     }

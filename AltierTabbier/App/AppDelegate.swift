@@ -108,11 +108,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start keyboard hooks after UI bindings are ready
         InputListener.shared.appState = appState
         InputListener.shared.start()
+        FocusMonitor.shared.start()
+        
+        // Seed MRU orders from current z-order for first activation
+        AppRecents.shared.seedFromCurrentZOrderIfEmpty()
+        WindowRecents.shared.seedFromCurrentZOrderIfEmpty()
         
         print("AltierTabbier started.")
     }
     
     func applicationWillTerminate(_ notification: Notification) {
+        FocusMonitor.shared.stop()
         if let obs = distributedObserver {
             DistributedNotificationCenter.default().removeObserver(obs)
         }

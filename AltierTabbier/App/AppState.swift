@@ -116,7 +116,8 @@ class AppState: ObservableObject {
             }
             let selectedWindow = visibleWindows[selectedIndex]
             print("Switching to window: \(selectedWindow.title) (ID: \(selectedWindow.windowID)) of app \(selectedWindow.appName) (PID: \(selectedWindow.ownerPID))")
-            print("➡️ Requesting AccessibilityService to focus window")
+            print("➡️ Bumping window recency and requesting focus")
+            WindowRecents.shared.bump(windowID: selectedWindow.windowID)
             AccessibilityService.shared.focus(window: selectedWindow)
             print("📣 Focus request sent to AccessibilityService")
         }
