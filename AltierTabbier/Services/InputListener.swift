@@ -13,6 +13,9 @@ class InputListener {
     
     private(set) var usingHIDTap: Bool = false
     var receivedKeyboardEvent: Bool = false
+
+    // When false, we create a listen-only tap that cannot suppress events
+    var suppressionEnabled: Bool = true
     
     // The tap must be stored as a CFMachPort
     var eventTap: CFMachPort?
@@ -66,20 +69,21 @@ class InputListener {
             #endif
             
             // 1. EVENT MASK
-            // We listen for KeyDown, KeyUp, FlagsChanged, and MouseDown (to verify tap is alive)
+            // We listen only for KeyDown, KeyUp, and FlagsChanged (keyboard-only).
             let mask: CGEventMask = (CGEventMask(1) << CGEventType.keyDown.rawValue) |
                                     (CGEventMask(1) << CGEventType.keyUp.rawValue) |
-                                    (CGEventMask(1) << CGEventType.flagsChanged.rawValue) |
-                                    (CGEventMask(1) << CGEventType.leftMouseDown.rawValue)
+                                    (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
             
             // 2. CREATE TAP
+            let tapOptions: CGEventTapOptions = self.suppressionEnabled ? .defaultTap : .listenOnly
+            
             var createdTap: CFMachPort? = nil
 
             // Try HID-level tap first for reliability; fall back to Session-level.
             createdTap = CGEvent.tapCreate(
                 tap: .cghidEventTap,
                 place: .headInsertEventTap,
-                options: .defaultTap,
+                options: tapOptions,
                 eventsOfInterest: mask,
                 callback: inputCallback,
                 userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -88,21 +92,21 @@ class InputListener {
             if let _ = createdTap {
                 self.usingHIDTap = true
                 if self.enableDiagnostics {
-                    print("🧲 Using HID-level event tap (suppression enabled).")
+                    print(self.suppressionEnabled ? "🧲 Using HID-level event tap (suppression enabled)." : "👂 Using HID-level event tap (listen-only, no suppression).")
                 }
             } else {
                 print("ℹ️ HID-level tap failed. Falling back to Session-level tap.")
                 createdTap = CGEvent.tapCreate(
                     tap: .cgSessionEventTap,
                     place: .headInsertEventTap,
-                    options: .defaultTap,
+                    options: tapOptions,
                     eventsOfInterest: mask,
                     callback: inputCallback,
                     userInfo: Unmanaged.passUnretained(self).toOpaque()
                 )
                 self.usingHIDTap = false
                 if self.enableDiagnostics {
-                    print("🧭 Using Session-level event tap (system shortcuts like Cmd+Tab may not be suppressible).")
+                    print(self.suppressionEnabled ? "🧭 Using Session-level event tap (suppression enabled)." : "👂 Using Session-level event tap (listen-only, no suppression).")
                 }
             }
             
@@ -171,9 +175,6 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         }
         return Unmanaged.passUnretained(event)
     }
-    
-    // 3. LOGGING (Temporary)
-    if type == .leftMouseDown { print("🖱️ Mouse Click") }
     
     if type == .keyDown {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)

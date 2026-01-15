@@ -1,6 +1,7 @@
 import Cocoa
 import CoreGraphics
 import ScreenCaptureKit
+import Foundation
 
 class WindowManager {
     
@@ -55,13 +56,49 @@ class WindowManager {
                 ownerPID: ownerPID,
                 owningApplication: appRef,
                 appIcon: appRef?.icon,
-                windowPreview: nil, // <--- Pass nil here for instant loading
                 frame: frame
             )
             windows.append(window)
         }
         
         return windows
+    }
+    
+    /// Returns one entry per running app that has at least one visible window.
+    func getOpenApps() -> [SystemApp] {
+        let windows = getOpenWindows()
+        guard !windows.isEmpty else { return [] }
+
+        // Group windows by owning PID
+        let grouped = Dictionary(grouping: windows, by: { $0.ownerPID })
+
+        var apps: [SystemApp] = []
+        apps.reserveCapacity(grouped.count)
+
+        for (pid, group) in grouped {
+            // Prefer non-empty app name from any window in the group
+            let name = group.first?.appName ?? "Unknown"
+            let appRef = group.first?.owningApplication
+            let icon = appRef?.icon
+            let count = group.count
+
+            let app = SystemApp(ownerPID: pid,
+                                appName: name,
+                                owningApplication: appRef,
+                                appIcon: icon,
+                                windowCount: count)
+            apps.append(app)
+        }
+
+        // Sort by recent activation if available, fallback to name
+        apps.sort { a, b in
+            let aActive = a.owningApplication?.isActive == true
+            let bActive = b.owningApplication?.isActive == true
+            if aActive != bActive { return aActive && !bActive }
+            return a.appName.localizedCaseInsensitiveCompare(b.appName) == .orderedAscending
+        }
+
+        return apps
     }
     
     /// The "Anti-Ghost" Filter.
@@ -101,70 +138,5 @@ class WindowManager {
         return true
     }
     
-    // Helper to get image ONLY if you are on macOS 14+
-    // If you are on older macOS, you must stick to the old CGWindowListCreateImage
-    func captureWindowImage(windowID: CGWindowID) async -> CGImage? {
-        
-        if #available(macOS 14.0, *) {
-            // 1. We need a "Content Filter" to tell SCK which window to grab
-            // Unfortunately, SCK requires us to fetch 'SCShareableContent' first to find the window object
-            // This is heavy. For a quick thumbnail, this adds latency.
-            
-            do {
-                let content = try await SCShareableContent.current
-                
-                guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
-                    return nil
-                }
-                
-                let filter = SCContentFilter(desktopIndependentWindow: window)
-                let config = SCStreamConfiguration()
-                
-                // Match the window size to save memory
-                config.width = Int(window.frame.width)
-                config.height = Int(window.frame.height)
-                config.showsCursor = false
-                
-                // Take the shot
-                return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-                
-            } catch {
-                print("Failed to capture window \(windowID): \(error)")
-                return nil
-            }
-        } else {
-            // Fallback for older macOS (if your target supports it)
-            // If your compiler blocks this, you might have to wrap it in a C-function or unchecked block
-            return nil
-        }
-    }
-    
-    // Note: It is 'async' which is why we couldn't call it in the loop above.
-    func fetchThumbnail(for windowID: CGWindowID) async -> CGImage? {
-        // Only available on macOS 12.3+, but realistic for "Modern" apps
-        guard #available(macOS 14.0, *) else { return nil }
-        
-        do {
-            // 1. Get all shareable content (windows, displays, apps)
-            let content = try await SCShareableContent.current
-            
-            // 2. Find our specific window in the SCK list
-            guard let match = content.windows.first(where: { $0.windowID == windowID }) else {
-                return nil
-            }
-            
-            // 3. Configure the capture
-            let filter = SCContentFilter(desktopIndependentWindow: match)
-            let config = SCStreamConfiguration()
-            config.width = Int(match.frame.width)
-            config.height = Int(match.frame.height)
-            config.showsCursor = false
-            
-            // 4. Capture
-            return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-        } catch {
-            print("SCK Error for window \(windowID): \(error)")
-            return nil
-        }
-    }
 }
+

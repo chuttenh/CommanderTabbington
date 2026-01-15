@@ -4,9 +4,9 @@ struct SwitcherView: View {
     @EnvironmentObject var appState: AppState
     
     // Aesthetic Constants
-    let itemWidth: CGFloat = 160
-    let itemHeight: CGFloat = 180
-    let spacing: CGFloat = 20
+    let itemWidth: CGFloat = 90
+    let itemHeight: CGFloat = 110
+    let spacing: CGFloat = 12
     
     var body: some View {
         ZStack {
@@ -18,25 +18,44 @@ struct SwitcherView: View {
                 // Header / Title (Optional, useful for debugging)
                 // Text("AltierTabbier").font(.caption).opacity(0.5).padding(.top, 10)
                 
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.vertical, showsIndicators: false) {
                     ScrollViewReader { proxy in
-                        HStack(spacing: spacing) {
-                            ForEach(Array(appState.visibleWindows.enumerated()), id: \.element.id) { index, window in
-                                WindowCardView(
-                                    window: window,
-                                    isSelected: index == appState.selectedIndex
-                                )
-                                .frame(width: itemWidth, height: itemHeight)
-                                .id(index) // Important for ScrollViewReader
-                                .onTapGesture {
-                                    // Allow clicking to select
-                                    appState.selectedIndex = index
-                                    appState.commitSelection()
+                        let columns = [GridItem(.adaptive(minimum: itemWidth), spacing: spacing, alignment: .center)]
+                        LazyVGrid(columns: columns, alignment: .center, spacing: spacing) {
+                            if appState.mode == .perApp {
+                                ForEach(Array(appState.visibleApps.enumerated()), id: \.element.id) { index, app in
+                                    AppCardView(
+                                        app: app,
+                                        isSelected: index == appState.selectedIndex
+                                    )
+                                    .frame(width: itemWidth, height: itemHeight)
+                                    .id(index)
+                                    .onTapGesture {
+                                        appState.selectedIndex = index
+                                        appState.commitSelection()
+                                    }
+                                }
+                            } else {
+                                ForEach(Array(appState.visibleWindows.enumerated()), id: \.element.id) { index, window in
+                                    AppCardView(
+                                        app: SystemApp(ownerPID: window.ownerPID,
+                                                       appName: window.appName,
+                                                       owningApplication: window.owningApplication,
+                                                       appIcon: window.appIcon,
+                                                       windowCount: 1),
+                                        isSelected: index == appState.selectedIndex,
+                                        subtitle: window.title
+                                    )
+                                    .frame(width: itemWidth, height: itemHeight)
+                                    .id(index)
+                                    .onTapGesture {
+                                        appState.selectedIndex = index
+                                        appState.commitSelection()
+                                    }
                                 }
                             }
                         }
-                        .padding(.horizontal, 40) // Padding at ends of list
-                        // Listen for changes in selection to auto-scroll
+                        .padding(.horizontal, 40)
                         .onChange(of: appState.selectedIndex) { newIndex in
                             withAnimation(.easeOut(duration: 0.15)) {
                                 proxy.scrollTo(newIndex, anchor: .center)
@@ -70,3 +89,4 @@ struct VisualEffectView: NSViewRepresentable {
         nsView.blendingMode = blendingMode
     }
 }
+

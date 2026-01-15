@@ -33,11 +33,6 @@ struct SystemWindow: Identifiable, Hashable {
     /// The application icon (e.g., the Chrome logo).
     let appIcon: NSImage?
     
-    /// The live screenshot of the window contents.
-    /// We use CGImage here because Core Graphics generates it natively,
-    /// and it's more performant than converting to NSImage immediately.
-    let windowPreview: CGImage?
-    
     // MARK: - Layout
     
     /// The window's position and size on screen.

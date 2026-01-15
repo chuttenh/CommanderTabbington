@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import Cocoa
 
 class AppState: ObservableObject {
     
@@ -9,11 +10,21 @@ class AppState: ObservableObject {
     /// When true, the UI appears; when false, it vanishes.
     @Published var isSwitcherVisible: Bool = false
     
-    /// The list of windows currently available to switch to.
+    /// The list of apps currently available to switch to.
     /// This is updated every time the switcher is invoked.
+    @Published var visibleApps: [SystemApp] = []
     @Published var visibleWindows: [SystemWindow] = []
     
-    /// The index of the currently highlighted window in the `visibleWindows` array.
+    enum SwitcherMode { case perApp, perWindow }
+    @Published var mode: SwitcherMode = .perApp
+    
+    init() {
+        // Initialize mode from user defaults (default: perApp)
+        let perApp = UserDefaults.standard.object(forKey: "perAppMode") as? Bool ?? true
+        self.mode = perApp ? .perApp : .perWindow
+    }
+    
+    /// The index of the currently highlighted app in the `visibleApps` array.
     @Published var selectedIndex: Int = 0
     
     // MARK: - Internal State
@@ -26,22 +37,27 @@ class AppState: ObservableObject {
     
     /// Called when the user presses the hotkey (e.g., Cmd+Tab).
     /// If the switcher is hidden, it opens it and captures the current state.
-    /// If open, it cycles to the next window.
+    /// If open, it cycles to the next app.
     func handleUserActivation(direction: SelectionDirection = .next) {
         if !isSwitcherVisible {
             // 1. Activate Switcher
-            refreshWindowList()
+            refreshCurrentList()
             
-            if visibleWindows.isEmpty {
-                print("⚠️ No windows available to show in switcher.")
+            if visibleApps.isEmpty && visibleWindows.isEmpty {
+                print("⚠️ No apps or windows available to show in switcher.")
             }
             
             isSwitcherVisible = true
-            print("🔎 Switcher opened. windows=\(visibleWindows.count) selectedIndex=\(selectedIndex)")
+            print("🔎 Switcher opened. apps=\(visibleApps.count) windows=\(visibleWindows.count) selectedIndex=\(selectedIndex)")
             
-            // 2. Select the second window (index 1) by default
-            // Index 0 is usually the currently focused window.
-            selectedIndex = (visibleWindows.count > 1) ? 1 : 0
+            // 2. Select the second app (index 1) by default
+            // Index 0 is usually the currently focused app/window.
+            let count: Int
+            switch mode {
+            case .perApp: count = visibleApps.count
+            case .perWindow: count = visibleWindows.count
+            }
+            selectedIndex = (count > 1) ? 1 : 0
             
         } else {
             // 3. Cycle Selection
@@ -51,13 +67,15 @@ class AppState: ObservableObject {
     
     /// Moves the selection index, wrapping around the array bounds.
     func cycleSelection(direction: SelectionDirection) {
-        guard !visibleWindows.isEmpty else { return }
+        guard !visibleApps.isEmpty || !visibleWindows.isEmpty else { return }
+        let count: Int = (mode == .perApp) ? visibleApps.count : visibleWindows.count
+        guard count > 0 else { return }
         
         switch direction {
         case .next:
-            selectedIndex = (selectedIndex + 1) % visibleWindows.count
+            selectedIndex = (selectedIndex + 1) % count
         case .previous:
-            selectedIndex = (selectedIndex - 1 + visibleWindows.count) % visibleWindows.count
+            selectedIndex = (selectedIndex - 1 + count) % count
         }
     }
     
@@ -68,16 +86,21 @@ class AppState: ObservableObject {
         
         // Hide UI immediately for responsiveness
         isSwitcherVisible = false
-        print("✅ Committing selection index=\(selectedIndex) total=\(visibleWindows.count)")
         
-        guard visibleWindows.indices.contains(selectedIndex) else { return }
-        let selectedWindow = visibleWindows[selectedIndex]
-        
-        // This is where we will eventually call our AccessibilityService
-        // to actually perform the switch.
-        print("Switching to: \(selectedWindow.title) (ID: \(selectedWindow.windowID))")
-        
-        AccessibilityService.shared.focus(window: selectedWindow)
+        switch mode {
+        case .perApp:
+            guard visibleApps.indices.contains(selectedIndex) else { return }
+            let selectedApp = visibleApps[selectedIndex]
+            print("Switching to app: \(selectedApp.appName) (PID: \(selectedApp.ownerPID))")
+            if let app = selectedApp.owningApplication {
+                app.activate(options: .activateIgnoringOtherApps)
+            }
+        case .perWindow:
+            guard visibleWindows.indices.contains(selectedIndex) else { return }
+            let selectedWindow = visibleWindows[selectedIndex]
+            print("Switching to window: \(selectedWindow.title) (ID: \(selectedWindow.windowID))")
+            AccessibilityService.shared.focus(window: selectedWindow)
+        }
     }
     
     func cancelSelection() {
@@ -87,12 +110,15 @@ class AppState: ObservableObject {
     
     // MARK: - Private Helpers
     
-    private func refreshWindowList() {
-        // Fetch the real windows from the system
-        let windows = WindowManager.shared.getOpenWindows()
-        
-        // Update the published property
-        self.visibleWindows = windows
+    private func refreshCurrentList() {
+        switch mode {
+        case .perApp:
+            let apps = WindowManager.shared.getOpenApps()
+            self.visibleApps = apps
+        case .perWindow:
+            let windows = WindowManager.shared.getOpenWindows()
+            self.visibleWindows = windows
+        }
     }
 }
 
