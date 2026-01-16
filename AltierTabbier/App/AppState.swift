@@ -18,6 +18,9 @@ class AppState: ObservableObject {
     enum SwitcherMode { case perApp, perWindow }
     @Published var mode: SwitcherMode = .perApp
     
+    // Delayed open support
+    private var pendingOpenWorkItem: DispatchWorkItem?
+    
     init() {
         // Initialize mode from user defaults (default: perApp)
         let perApp = UserDefaults.standard.object(forKey: "perAppMode") as? Bool ?? true
@@ -40,27 +43,37 @@ class AppState: ObservableObject {
     /// If open, it cycles to the next app.
     func handleUserActivation(direction: SelectionDirection = .next) {
         if !isSwitcherVisible {
-            // 1. Activate Switcher
-            refreshCurrentList()
-            
-            if visibleApps.isEmpty && visibleWindows.isEmpty {
-                print("⚠️ No apps or windows available to show in switcher.")
+            // If no pending open, capture current state and schedule UI appearance after a small delay
+            if pendingOpenWorkItem == nil {
+                refreshCurrentList()
+                if visibleApps.isEmpty && visibleWindows.isEmpty {
+                    print("⚠️ No apps or windows available to show in switcher.")
+                }
+                // Preselect the second entry (index 1) by default
+                let count: Int = (mode == .perApp) ? visibleApps.count : visibleWindows.count
+                selectedIndex = (count > 1) ? 1 : 0
+
+                // Schedule showing the overlay after the configured delay
+                let delayMS = UserDefaults.standard.object(forKey: "switcherOpenDelayMS") as? Int ?? 100
+                var workItem: DispatchWorkItem?
+                workItem = DispatchWorkItem { [weak self] in
+                    guard let self = self else { return }
+                    // Ensure this is still the active pending item; if it was canceled or superseded, do nothing
+                    guard self.pendingOpenWorkItem === workItem else { return }
+                    self.isSwitcherVisible = true
+                    self.pendingOpenWorkItem = nil
+                    print("🔎 Switcher opened (delayed). apps=\(self.visibleApps.count) windows=\(self.visibleWindows.count) selectedIndex=\(self.selectedIndex)")
+                }
+                if let wi = workItem {
+                    pendingOpenWorkItem = wi
+                    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(max(0, delayMS)), execute: wi)
+                }
+            } else {
+                // Already pending; allow cycling before the UI becomes visible
+                cycleSelection(direction: direction)
             }
-            
-            isSwitcherVisible = true
-            print("🔎 Switcher opened. apps=\(visibleApps.count) windows=\(visibleWindows.count) selectedIndex=\(selectedIndex)")
-            
-            // 2. Select the second app (index 1) by default
-            // Index 0 is usually the currently focused app/window.
-            let count: Int
-            switch mode {
-            case .perApp: count = visibleApps.count
-            case .perWindow: count = visibleWindows.count
-            }
-            selectedIndex = (count > 1) ? 1 : 0
-            
         } else {
-            // 3. Cycle Selection
+            // UI is visible; normal cycling
             cycleSelection(direction: direction)
         }
     }
@@ -85,14 +98,19 @@ class AppState: ObservableObject {
         // Diagnostics: entry log
         print("commitSelection invoked. mode=\(mode) selectedIndex=\(selectedIndex) isVisible=\(isSwitcherVisible) apps=\(visibleApps.count) windows=\(visibleWindows.count)")
         
-        // Ensure the switcher is actually visible
-        guard isSwitcherVisible else {
-            print("⚠️ commitSelection ignored: switcher not visible")
+        // Allow commit even if the UI hasn't appeared yet, as long as an open is pending
+        let hadPendingOpen = (pendingOpenWorkItem != nil)
+        if hadPendingOpen {
+            pendingOpenWorkItem?.cancel()
+            pendingOpenWorkItem = nil
+        }
+        
+        guard isSwitcherVisible || hadPendingOpen else {
+            print("⚠️ commitSelection ignored: switcher not visible and no pending open")
             return
         }
         
-        // Hide UI immediately for responsiveness
-        isSwitcherVisible = false
+        if isSwitcherVisible { isSwitcherVisible = false }
         print("🫥 Hiding switcher overlay before activation")
         
         switch mode {
@@ -138,6 +156,7 @@ class AppState: ObservableObject {
     
     func cancelSelection() {
         isSwitcherVisible = false
+        if let w = pendingOpenWorkItem { w.cancel(); pendingOpenWorkItem = nil }
         // Optional: Return focus to previousApp if needed
     }
     

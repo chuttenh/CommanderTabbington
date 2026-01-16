@@ -10,6 +10,7 @@ struct PreferencesView: View {
     @AppStorage("showNotificationBadges") private var showNotificationBadges: Bool = true
     @AppStorage("IncludeHiddenApps") private var includeHiddenApps: Bool = true
     @AppStorage("IncludeMinimizedApps") private var includeMinimizedApps: Bool = true
+    @AppStorage("switcherOpenDelayMS") private var switcherOpenDelayMS: Int = 100
     
     var body: some View {
         Form {
@@ -35,6 +36,23 @@ struct PreferencesView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.top, 8)
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Switcher open delay (milliseconds)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        TextField("Delay (ms)", value: $switcherOpenDelayMS, formatter: NumberFormatter())
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                            .onChange(of: switcherOpenDelayMS) { newVal in
+                                if newVal < 0 { switcherOpenDelayMS = 0 }
+                            }
+                        Text("ms")
+                            .foregroundStyle(.secondary)
+                    }
+                    .help("Delay before the switcher overlay becomes visible after pressing Command+Tab. Prevents flicker on quick switches.")
+                }
                 
                 Toggle("Show Notification Badges", isOn: $showNotificationBadges)
                     .onChange(of: showNotificationBadges) { _ in

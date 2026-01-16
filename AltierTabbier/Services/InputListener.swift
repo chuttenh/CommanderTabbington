@@ -93,9 +93,9 @@ class InputListener {
                         let isCmdNow = hasCommand
                         if !isCmdNow {
                             let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
-                            if let appState = appState, appState.isSwitcherVisible {
+                            if let appState = appState {
                                 if self.enableDiagnostics { print("✅ Local monitor committing on Command release (fallback)") }
-                                DispatchQueue.main.async { 
+                                DispatchQueue.main.async {
                                     appState.commitSelection()
                                     self.stopCommandReleasePoller()
                                 }
@@ -106,9 +106,9 @@ class InputListener {
                         if keyCode == UInt16(self.kVK_Tab) {
                             if !hasCommand {
                                 let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
-                                if let appState = appState, appState.isSwitcherVisible {
+                                if let appState = appState {
                                     if self.enableDiagnostics { print("✅ Local monitor committing on Tab keyUp (fallback)") }
-                                    DispatchQueue.main.async { 
+                                    DispatchQueue.main.async {
                                         appState.commitSelection()
                                         self.stopCommandReleasePoller()
                                     }
@@ -307,7 +307,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
             if !hasCommand {
                 if listener.enableDiagnostics { print("✅ Fallback commit on Tab keyUp (Command not held)") }
                 let appState = listener.appState ?? (NSApp.delegate as? AppDelegate)?.appState
-                if let appState = appState, appState.isSwitcherVisible {
+                if let appState = appState {
                     DispatchQueue.main.async {
                         appState.commitSelection()
                     }
@@ -342,38 +342,24 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         
         listener.noteKeyboardEventReceived()
         
-        // If Command is not held and the switcher is visible, commit selection
         if !isCmdNow {
-            // Prefer using the listener's appState reference
             if let appState = listener.appState {
-                let visible = appState.isSwitcherVisible
                 if listener.enableDiagnostics {
-                    print("👁️ isSwitcherVisible at flagsChanged: \(visible)")
+                    print("✅ Committing selection on Command release (flagsChanged via listener.appState)")
                 }
-                if visible {
-                    if listener.enableDiagnostics { print("✅ Committing selection on Command release (flagsChanged via listener.appState)") }
-                    DispatchQueue.main.async {
-                        appState.commitSelection()
-                    }
-                    listener.stopCommandReleasePoller()
-                } else {
-                    if listener.enableDiagnostics { print("⏭️ Skipping commit: switcher not visible at Command release") }
+                DispatchQueue.main.async {
+                    appState.commitSelection()
                 }
+                listener.stopCommandReleasePoller()
             } else if let appDelegate = NSApp.delegate as? AppDelegate {
                 let appState = appDelegate.appState
-                let visible = appState.isSwitcherVisible
                 if listener.enableDiagnostics {
-                    print("👁️ isSwitcherVisible at flagsChanged (fallback): \(visible)")
+                    print("✅ Committing selection on Command release (flagsChanged via AppDelegate)")
                 }
-                if visible {
-                    if listener.enableDiagnostics { print("✅ Committing selection on Command release (flagsChanged via AppDelegate)") }
-                    DispatchQueue.main.async {
-                        appState.commitSelection()
-                    }
-                    listener.stopCommandReleasePoller()
-                } else {
-                    if listener.enableDiagnostics { print("⏭️ Skipping commit (fallback): switcher not visible at Command release") }
+                DispatchQueue.main.async {
+                    appState.commitSelection()
                 }
+                listener.stopCommandReleasePoller()
             } else {
                 if listener.enableDiagnostics { print("❓ No AppState available on Command release") }
             }

@@ -7,26 +7,34 @@ struct AppCardView: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            VStack(spacing: 8) {
-                Group {
-                    if let nsIcon = app.appIcon {
-                        Image(nsImage: nsIcon)
-                            .resizable()
-                            .interpolation(.high)
-                            .antialiased(true)
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 64, height: 64)
-                    } else {
-                        Image(systemName: "app")
-                            .font(.system(size: 48))
-                            .foregroundColor(.secondary)
-                            .opacity(0.7)
-                            .frame(width: 64, height: 64)
+            VStack(spacing: 4) {
+                ZStack(alignment: .topTrailing) {
+                    Group {
+                        if let nsIcon = app.appIcon {
+                            Image(nsImage: nsIcon)
+                                .resizable()
+                                .interpolation(.high)
+                                .antialiased(true)
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 64, height: 64)
+                        } else {
+                            Image(systemName: "app")
+                                .font(.system(size: 48))
+                                .foregroundColor(.secondary)
+                                .opacity(0.7)
+                                .frame(width: 64, height: 64)
+                        }
+                    }
+                    // Badge overlay anchored to the icon
+                    if UserDefaults.standard.object(forKey: "showNotificationBadges") as? Bool ?? true, let badge = app.badgeCount {
+                        BadgeView(count: badge)
+                            .offset(x: 5, y: 3)
                     }
                 }
                 .shadow(radius: isSelected ? 6 : 0)
-                .scaleEffect(isSelected ? 1.08 : 1.0)
-                .frame(height: 72, alignment: .bottom)
+                .scaleEffect(isSelected ? 1.08 : 1.0, anchor: .top)
+                .padding(.top, 3)
+                .frame(height: 72, alignment: .top)
                 
                 VStack(spacing: 2) {
                     Text(app.appName)
@@ -47,13 +55,9 @@ struct AppCardView: View {
                             .lineLimit(1)
                     }
                 }
+                .frame(height: 36, alignment: .top)
             }
-            
-            // Badge overlay (top-right)
-            if UserDefaults.standard.object(forKey: "showNotificationBadges") as? Bool ?? true, let badge = app.badgeCount {
-                BadgeView(count: badge)
-                    .offset(x: 6, y: -6)
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .contentShape(Rectangle())
     }
@@ -64,10 +68,10 @@ struct BadgeView: View {
     private var fontSize: CGFloat {
         let digits = String(count).count
         switch digits {
-        case 1: return 12
-        case 2: return 11
-        case 3: return 10
-        default: return 9
+        case 1: return 13
+        case 2: return 12
+        case 3: return 11
+        default: return 10
         }
     }
     
@@ -75,7 +79,7 @@ struct BadgeView: View {
         ZStack {
             Circle()
                 .fill(Color.red)
-                .frame(width: 20, height: 20)
+                .frame(width: 22, height: 22)
             if count > 0 {
                 Text("\(count)")
                     .font(.system(size: fontSize, weight: .bold))
