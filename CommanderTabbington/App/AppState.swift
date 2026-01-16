@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import Cocoa
+import CoreGraphics
 
 class AppState: ObservableObject {
     
@@ -28,6 +29,9 @@ class AppState: ObservableObject {
     }
     
     /// The index of the currently highlighted app in the `visibleApps` array.
+    @Published var selectedAppID: pid_t? = nil
+    @Published var selectedWindowID: CGWindowID? = nil
+
     @Published var selectedIndex: Int = 0
     
     // MARK: - Internal State
@@ -52,6 +56,23 @@ class AppState: ObservableObject {
                 // Preselect the second entry (index 1) by default
                 let count: Int = (mode == .perApp) ? visibleApps.count : visibleWindows.count
                 selectedIndex = (count > 1) ? 1 : 0
+
+                switch self.mode {
+                case .perApp:
+                    if self.visibleApps.indices.contains(self.selectedIndex) {
+                        self.selectedAppID = self.visibleApps[self.selectedIndex].id
+                    } else {
+                        self.selectedAppID = nil
+                    }
+                    self.selectedWindowID = nil
+                case .perWindow:
+                    if self.visibleWindows.indices.contains(self.selectedIndex) {
+                        self.selectedWindowID = self.visibleWindows[self.selectedIndex].id
+                    } else {
+                        self.selectedWindowID = nil
+                    }
+                    self.selectedAppID = nil
+                }
 
                 // Schedule showing the overlay after the configured delay
                 let delayMS = UserDefaults.standard.object(forKey: "switcherOpenDelayMS") as? Int ?? 100
@@ -89,6 +110,19 @@ class AppState: ObservableObject {
             selectedIndex = (selectedIndex + 1) % count
         case .previous:
             selectedIndex = (selectedIndex - 1 + count) % count
+        }
+        
+        switch mode {
+        case .perApp:
+            if visibleApps.indices.contains(selectedIndex) {
+                selectedAppID = visibleApps[selectedIndex].id
+            }
+            selectedWindowID = nil
+        case .perWindow:
+            if visibleWindows.indices.contains(selectedIndex) {
+                selectedWindowID = visibleWindows[selectedIndex].id
+            }
+            selectedAppID = nil
         }
     }
     
@@ -171,11 +205,29 @@ class AppState: ObservableObject {
     private func refreshCurrentList() {
         switch mode {
         case .perApp:
+            let prevID = self.selectedAppID
             var apps = WindowManager.shared.getOpenApps()
             // Sort by tier then MRU; inside tier preserve existing ordering rules
             apps.sortByTierAndRecency()
+
+            let newSelectedID: pid_t? = {
+                if let prev = prevID, apps.contains(where: { $0.id == prev }) { return prev }
+                let count = apps.count
+                if count == 0 { return nil }
+                let fallbackIndex = min(self.selectedIndex, count - 1)
+                return apps[fallbackIndex].id
+            }()
+            let newIndex: Int = {
+                if let sel = newSelectedID, let idx = apps.firstIndex(where: { $0.id == sel }) { return idx }
+                return 0
+            }()
+
+            // Publish list then identity and index
             self.visibleApps = apps
+            self.selectedAppID = newSelectedID
+            self.selectedIndex = newIndex
         case .perWindow:
+            let prevID = self.selectedWindowID
             var windows = WindowManager.shared.getOpenWindows()
             // Normalize tier according to current preferences (map to .normal when preference is .normal)
             let hiddenPref = PreferenceUtils.hiddenPlacement()
@@ -190,7 +242,23 @@ class AppState: ObservableObject {
             }
             // Sort by tier then MRU
             windows.sortByTierAndRecency()
+
+            let newSelectedID: CGWindowID? = {
+                if let prev = prevID, windows.contains(where: { $0.id == prev }) { return prev }
+                let count = windows.count
+                if count == 0 { return nil }
+                let fallbackIndex = min(self.selectedIndex, count - 1)
+                return windows[fallbackIndex].id
+            }()
+            let newIndex: Int = {
+                if let sel = newSelectedID, let idx = windows.firstIndex(where: { $0.id == sel }) { return idx }
+                return 0
+            }()
+
+            // Publish list then identity and index
             self.visibleWindows = windows
+            self.selectedWindowID = newSelectedID
+            self.selectedIndex = newIndex
         }
     }
 }

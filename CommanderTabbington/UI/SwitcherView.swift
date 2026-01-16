@@ -8,15 +8,6 @@ struct SwitcherView: View {
     let itemHeight: CGFloat = 110
     let spacing: CGFloat = 12
 
-    private var hasSecondTier: Bool {
-        switch appState.mode {
-        case .perApp:
-            return appState.visibleApps.contains { $0.tier != .normal }
-        case .perWindow:
-            return appState.visibleWindows.contains { $0.tier != .normal }
-        }
-    }
-    
     var body: some View {
         ZStack {
             // Background Blur (Glass Effect)
@@ -24,78 +15,67 @@ struct SwitcherView: View {
                 .edgesIgnoringSafeArea(.all)
             
             VStack(spacing: 0) {
-                // Header / Title (Optional, useful for debugging)
-                // Text("Commander Tabbington").font(.caption).opacity(0.5).padding(.top, 10)
-                
                 ScrollView(.vertical, showsIndicators: false) {
                     ScrollViewReader { proxy in
                         let columns = [GridItem(.adaptive(minimum: itemWidth), spacing: spacing, alignment: .center)]
+                        
                         LazyVGrid(columns: columns, alignment: .center, spacing: spacing) {
                             if appState.mode == .perApp {
-                                let enumeratedApps = Array(appState.visibleApps.enumerated())
-                                let mainApps = enumeratedApps.filter { $0.element.tier == .normal }
-                                let hiddenApps = enumeratedApps.filter { $0.element.tier == .hidden }
-                                let minimizedApps = enumeratedApps.filter { $0.element.tier == .minimized }
-
-                                let tiers: [[(offset: Int, element: SystemApp)]] = [mainApps, hiddenApps, minimizedApps]
-                                ForEach(Array(tiers.enumerated()), id: \.offset) { tIndex, tierApps in
-                                    if tIndex > 0, hasSecondTier, !tierApps.isEmpty {
-                                        Rectangle()
-                                            .fill(Color.secondary.opacity(0.3))
-                                            .frame(width: 1)
-                                            .frame(height: itemHeight)
-                                            .padding(.horizontal, 6)
-                                    }
-                                    ForEach(tierApps, id: \.element.id) { pair in
-                                        let globalIndex = pair.offset
-                                        let app = pair.element
-                                        AppCardView(
-                                            app: app,
-                                            isSelected: globalIndex == appState.selectedIndex
-                                        )
-                                        .frame(width: itemWidth, height: itemHeight)
-                                        .id(app.id)
-                                        .onTapGesture {
-                                            appState.selectedIndex = globalIndex
-                                            appState.commitSelection()
+                                let apps = appState.visibleApps
+                                ForEach(Array(apps.enumerated()), id: \.element.id) { index, app in
+                                    // Calculate if we need a tier separator divider
+                                    let isLastInTier = (index + 1 < apps.count) && (app.tier != apps[index + 1].tier)
+                                    
+                                    AppCardView(
+                                        app: app,
+                                        isSelected: (appState.selectedAppID != nil && appState.selectedAppID == app.id)
+                                    )
+                                    .frame(width: itemWidth, height: itemHeight)
+                                    .id(app.id)
+                                    .overlay(alignment: .trailing) {
+                                        if isLastInTier {
+                                            Rectangle()
+                                                .fill(Color.secondary.opacity(0.3))
+                                                .frame(width: 1, height: itemHeight)
+                                                .offset(x: spacing / 2)
                                         }
+                                    }
+                                    .onTapGesture {
+                                        appState.selectedAppID = app.id
+                                        appState.selectedIndex = index
+                                        appState.commitSelection()
                                     }
                                 }
                             } else {
-                                let enumeratedWins = Array(appState.visibleWindows.enumerated())
-                                let mainWins = enumeratedWins.filter { $0.element.tier == .normal }
-                                let hiddenWins = enumeratedWins.filter { $0.element.tier == .hidden }
-                                let minimizedWins = enumeratedWins.filter { $0.element.tier == .minimized }
-
-                                let tiersW: [[(offset: Int, element: SystemWindow)]] = [mainWins, hiddenWins, minimizedWins]
-                                ForEach(Array(tiersW.enumerated()), id: \.offset) { tIndex, tierWins in
-                                    if tIndex > 0, hasSecondTier, !tierWins.isEmpty {
-                                        Rectangle()
-                                            .fill(Color.secondary.opacity(0.3))
-                                            .frame(width: 1)
-                                            .frame(height: itemHeight)
-                                            .padding(.horizontal, 6)
-                                    }
-                                    ForEach(tierWins, id: \.element.id) { pair in
-                                        let globalIndex = pair.offset
-                                        let window = pair.element
-                                        AppCardView(
-                                            app: SystemApp(ownerPID: window.ownerPID,
-                                                           appName: window.appName,
-                                                           owningApplication: window.owningApplication,
-                                                           appIcon: window.appIcon,
-                                                           windowCount: 1,
-                                                           badgeCount: nil,
-                                                           tier: window.tier),
-                                            isSelected: globalIndex == appState.selectedIndex,
-                                            subtitle: window.title
-                                        )
-                                        .frame(width: itemWidth, height: itemHeight)
-                                        .id(window.windowID)
-                                        .onTapGesture {
-                                            appState.selectedIndex = globalIndex
-                                            appState.commitSelection()
+                                let windows = appState.visibleWindows
+                                ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
+                                    let isLastInTier = (index + 1 < windows.count) && (window.tier != windows[index + 1].tier)
+                                    
+                                    AppCardView(
+                                        app: SystemApp(ownerPID: window.ownerPID,
+                                                       appName: window.appName,
+                                                       owningApplication: window.owningApplication,
+                                                       appIcon: window.appIcon,
+                                                       windowCount: 1,
+                                                       badgeCount: nil,
+                                                       tier: window.tier),
+                                        isSelected: (appState.selectedWindowID != nil && appState.selectedWindowID == window.id),
+                                        subtitle: window.title
+                                    )
+                                    .frame(width: itemWidth, height: itemHeight)
+                                    .id(window.id)
+                                    .overlay(alignment: .trailing) {
+                                        if isLastInTier {
+                                            Rectangle()
+                                                .fill(Color.secondary.opacity(0.3))
+                                                .frame(width: 1, height: itemHeight)
+                                                .offset(x: spacing / 2)
                                         }
+                                    }
+                                    .onTapGesture {
+                                        appState.selectedWindowID = window.id
+                                        appState.selectedIndex = index
+                                        appState.commitSelection()
                                     }
                                 }
                             }
@@ -119,10 +99,11 @@ struct SwitcherView: View {
                     }
                 }
                 .padding(.vertical, 20)
+                
+                // Spacer prevents the icon row from rendering too low on startup by filling bottom space
+                Spacer(minLength: 0)
             }
         }
-        // Force the size of the window to fit content if you want,
-        // or just let the panel size set in AppDelegate dictate it.
     }
 }
 

@@ -21,10 +21,16 @@ struct SystemApp: Identifiable, Hashable {
     var tier: VisibilityTier = .normal
 
     static func == (lhs: SystemApp, rhs: SystemApp) -> Bool {
-        lhs.ownerPID == rhs.ownerPID
+        // Essential to include tier and windowCount so SwiftUI updates when state changes
+        lhs.ownerPID == rhs.ownerPID && 
+        lhs.tier == rhs.tier && 
+        lhs.windowCount == rhs.windowCount &&
+        lhs.badgeCount == rhs.badgeCount &&
+        lhs.appName == rhs.appName
     }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(ownerPID)
+        hasher.combine(tier)
     }
 }

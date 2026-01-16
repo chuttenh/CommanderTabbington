@@ -25,7 +25,7 @@ struct AppCardView: View {
                                 .frame(width: 64, height: 64)
                         }
                     }
-                    // Badge overlay anchored to the icon
+                    // Badge overlay using original positioning and size
                     if UserDefaults.standard.object(forKey: "showNotificationBadges") as? Bool ?? true, let badge = app.badgeCount {
                         BadgeView(count: badge)
                             .offset(x: 5, y: 3)
@@ -42,13 +42,14 @@ struct AppCardView: View {
                         .foregroundColor(.primary)
                         .lineLimit(1)
                         .frame(height: 20, alignment: .top)
+                    
                     if let subtitle = subtitle, !subtitle.isEmpty {
                         Text(subtitle)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                    } else if app.windowCount > 1 {
+                    } else if app.windowCount > 1 { // Show only for more than one window
                         Text("\(app.windowCount) windows")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -62,6 +63,7 @@ struct AppCardView: View {
         .contentShape(Rectangle())
     }
 }
+
 struct BadgeView: View {
     let count: Int
     
@@ -81,7 +83,8 @@ struct BadgeView: View {
                 .fill(Color.red)
                 .frame(width: 22, height: 22)
             if count > 0 {
-                Text("\(count)")
+                // Limit set to 999 as requested
+                Text("\(count > 999 ? "999+" : "\(count)")")
                     .font(.system(size: fontSize, weight: .bold))
                     .foregroundColor(.white)
                     .minimumScaleFactor(0.6)
