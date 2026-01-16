@@ -20,6 +20,9 @@ final class AppRecents {
             let pid = front.processIdentifier
             mruPIDs = [pid]
         }
+        
+        // Perform an initial full Z-order scan to populate hidden/minimized apps
+        seedFromCurrentZOrderIfEmpty()
     }
 
     @objc private func appActivated(_ note: Notification) {
@@ -27,7 +30,6 @@ final class AppRecents {
         let pid = app.processIdentifier
         queue.async { [weak self] in
             guard let self = self else { return }
-            // Move to front if exists, otherwise insert at front
             self.mruPIDs.removeAll { $0 == pid }
             self.mruPIDs.insert(pid, at: 0)
         }
@@ -46,14 +48,12 @@ final class AppRecents {
         let pid = app.processIdentifier
         queue.async { [weak self] in
             guard let self = self else { return }
-            // Place newly launched apps behind the current frontmost if not already present
             if !self.mruPIDs.contains(pid) {
                 self.mruPIDs.append(pid)
             }
         }
     }
 
-    // Move a PID to most-recent position
     func bump(pid: pid_t) {
         queue.async { [weak self] in
             guard let self = self else { return }
@@ -62,7 +62,6 @@ final class AppRecents {
         }
     }
 
-    // Returns a rank for the given PID: lower is more recent. Unknown PIDs get a large rank.
     func rank(for pid: pid_t) -> Int {
         var result = Int.max
         queue.sync {
@@ -71,9 +70,7 @@ final class AppRecents {
         return result
     }
 
-    // Convenience to sort SystemApp arrays by recency, with active-first and name tiebreaker
     func sortAppsByRecency(_ apps: inout [SystemApp]) {
-        // Build initial rank map from stored MRU
         var rankMap: [pid_t: Int] = [:]
         var unknownCount = 0
         for app in apps {
@@ -82,10 +79,11 @@ final class AppRecents {
             if r == Int.max { unknownCount += 1 }
         }
         
-        let knownCount = apps.count - unknownCount
-        // If we have no MRU info yet, derive order from current on-screen window Z-order
-        if unknownCount == apps.count {
-            if let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+        // If we have unknown apps (common at startup for hidden/minimized ones), 
+        // perform a broader Z-order scan to resolve their relative positions.
+        if unknownCount > 0 {
+            // Drop .optionOnScreenOnly to include minimized and some hidden windows in the seed
+            if let infoList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
                 var seen = Set<pid_t>()
                 var order: [pid_t] = []
                 for entry in infoList {
@@ -97,43 +95,26 @@ final class AppRecents {
                         }
                     }
                 }
-                for (idx, pid) in order.enumerated() {
-                    rankMap[pid] = idx
-                }
-                // Persist the seeded order for future calls
-                queue.async { [weak self] in
-                    self?.mruPIDs = order
-                }
-            }
-        } else if unknownCount > 0 {
-            // If only a few apps are known (e.g., only the frontmost), seed unknowns by current CG z-order
-            if let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
-                var seen = Set<pid_t>()
-                var order: [pid_t] = []
-                for entry in infoList {
-                    if let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32 {
-                        let pid = ownerPID
-                        if !seen.contains(pid) {
-                            seen.insert(pid)
-                            order.append(pid)
-                        }
-                    }
-                }
-                // Determine base rank after existing known ranks so known apps stay ahead
+                
+                // Determine base rank after existing known ranks
                 let maxKnownRank = rankMap.values.filter { $0 != Int.max }.max() ?? -1
                 let base = maxKnownRank + 1
                 var assigned = 0
+                
                 for pid in order {
                     if rankMap[pid] == Int.max {
                         rankMap[pid] = base + assigned
                         assigned += 1
                     }
                 }
-                // Do not persist here; FocusMonitor will refine MRU soon
+                
+                // Update internal MRU list with newly discovered order if we were empty
+                if unknownCount == apps.count {
+                    queue.async { [weak self] in self?.mruPIDs = order }
+                }
             }
         }
         
-        // Sort: active-first, then MRU rank, then name
         apps.sort { a, b in
             let aActive = a.owningApplication?.isActive == true
             let bActive = b.owningApplication?.isActive == true
@@ -145,12 +126,14 @@ final class AppRecents {
         }
     }
 
-    // Seed MRU order from current on-screen window Z-order if we don't have any recency data yet
     func seedFromCurrentZOrderIfEmpty() {
         queue.async { [weak self] in
             guard let self = self else { return }
-            guard self.mruPIDs.isEmpty else { return }
-            guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return }
+            // Seed if empty OR if we only have the frontmost app
+            guard self.mruPIDs.count <= 1 else { return }
+            
+            // Drop .optionOnScreenOnly to capture minimized/off-screen windows for a complete initial MRU list
+            guard let infoList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return }
             var seen = Set<pid_t>()
             var order: [pid_t] = []
             for entry in infoList {
@@ -162,18 +145,24 @@ final class AppRecents {
                     }
                 }
             }
+            
             if !order.isEmpty {
-                self.mruPIDs = order
+                // Preserve frontmost if already tracked
+                var merged = self.mruPIDs
+                for pid in order {
+                    if !merged.contains(pid) { merged.append(pid) }
+                }
+                self.mruPIDs = merged
             }
         }
     }
 }
+
 extension Array where Element == SystemApp {
     mutating func sortByTierAndRecency() {
-        // Stable partition by tier while preserving original order (which is already MRU-sorted)
-        let normal: [SystemApp] = self.filter { $0.tier == VisibilityTier.normal }
-        let hidden: [SystemApp] = self.filter { $0.tier == VisibilityTier.hidden }
-        let minimized: [SystemApp] = self.filter { $0.tier == VisibilityTier.minimized }
+        let normal = self.filter { $0.tier == .normal }
+        let hidden = self.filter { $0.tier == .hidden }
+        let minimized = self.filter { $0.tier == .minimized }
         self = normal + hidden + minimized
     }
 }

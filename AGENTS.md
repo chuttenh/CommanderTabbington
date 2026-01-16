@@ -6,6 +6,7 @@
 
 // It supersedes any content in older files like GEMINI.md or copilot-instructions.md if those exist and disagree with this document.
 
+When a major feature or algorithmic change is implemented, update this file with the new information.
 
 ## Project purpose
 Commander Tabbington is a lightweight macOS app/window switcher. It displays a non-activating overlay with a grid of running apps (Per App mode) or individual windows (Per Window mode), lets the user cycle selection via the keyboard, and then focuses the chosen app/window. It aims to be fast, predictable, and respectful of the user’s current focus.

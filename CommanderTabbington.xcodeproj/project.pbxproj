@@ -7,11 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		796A2C5D2F1AB65F00D7B82E /* AI_CONTEXT.md in Resources */ = {isa = PBXBuildFile; fileRef = 796A2C5C2F1AB65F00D7B82E /* AI_CONTEXT.md */; };
+		796A2C5D2F1AB65F00D7B82E /* AGENTS.md in Resources */ = {isa = PBXBuildFile; fileRef = 796A2C5C2F1AB65F00D7B82E /* AGENTS.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		796A2C5C2F1AB65F00D7B82E /* AI_CONTEXT.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AI_CONTEXT.md; sourceTree = "<group>"; };
+		796A2C5C2F1AB65F00D7B82E /* AGENTS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AGENTS.md; sourceTree = "<group>"; };
 		796E71BF2F17482E00D4FF1E /* CommanderTabbington.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CommanderTabbington.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -39,7 +39,7 @@
 			children = (
 				796E71C12F17482E00D4FF1E /* CommanderTabbington */,
 				796E71C02F17482E00D4FF1E /* Products */,
-				796A2C5C2F1AB65F00D7B82E /* AI_CONTEXT.md */,
+				796A2C5C2F1AB65F00D7B82E /* AGENTS.md */,
 			);
 			sourceTree = "<group>";
 		};
@@ -115,7 +115,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				796A2C5D2F1AB65F00D7B82E /* AI_CONTEXT.md in Resources */,
+				796A2C5D2F1AB65F00D7B82E /* AGENTS.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
