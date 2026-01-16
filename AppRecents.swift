@@ -82,6 +82,7 @@ final class AppRecents {
             if r == Int.max { unknownCount += 1 }
         }
         
+        let knownCount = apps.count - unknownCount
         // If we have no MRU info yet, derive order from current on-screen window Z-order
         if unknownCount == apps.count {
             if let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
@@ -103,6 +104,32 @@ final class AppRecents {
                 queue.async { [weak self] in
                     self?.mruPIDs = order
                 }
+            }
+        } else if unknownCount > 0 {
+            // If only a few apps are known (e.g., only the frontmost), seed unknowns by current CG z-order
+            if let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+                var seen = Set<pid_t>()
+                var order: [pid_t] = []
+                for entry in infoList {
+                    if let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32 {
+                        let pid = ownerPID
+                        if !seen.contains(pid) {
+                            seen.insert(pid)
+                            order.append(pid)
+                        }
+                    }
+                }
+                // Determine base rank after existing known ranks so known apps stay ahead
+                let maxKnownRank = rankMap.values.filter { $0 != Int.max }.max() ?? -1
+                let base = maxKnownRank + 1
+                var assigned = 0
+                for pid in order {
+                    if rankMap[pid] == Int.max {
+                        rankMap[pid] = base + assigned
+                        assigned += 1
+                    }
+                }
+                // Do not persist here; FocusMonitor will refine MRU soon
             }
         }
         
