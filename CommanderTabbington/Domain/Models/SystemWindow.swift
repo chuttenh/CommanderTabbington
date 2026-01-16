@@ -39,6 +39,8 @@ struct SystemWindow: Identifiable, Hashable {
     /// Used by the UI to determine the aspect ratio of the thumbnail.
     let frame: CGRect
     
+    var tier: VisibilityTier = .normal
+    
     // MARK: - Equatable & Hashable
     
     // We define equality solely by windowID. If the ID is the same,

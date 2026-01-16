@@ -168,3 +168,13 @@ final class AppRecents {
         }
     }
 }
+extension Array where Element == SystemApp {
+    mutating func sortByTierAndRecency() {
+        // Stable partition by tier while preserving original order (which is already MRU-sorted)
+        let normal: [SystemApp] = self.filter { $0.tier == VisibilityTier.normal }
+        let hidden: [SystemApp] = self.filter { $0.tier == VisibilityTier.hidden }
+        let minimized: [SystemApp] = self.filter { $0.tier == VisibilityTier.minimized }
+        self = normal + hidden + minimized
+    }
+}
+

@@ -8,8 +8,10 @@ struct PreferencesView: View {
     @AppStorage("maxWidthFraction") private var maxWidthFraction: Double = 0.9
     @AppStorage("maxVisibleRows") private var maxVisibleRows: Int = 2
     @AppStorage("showNotificationBadges") private var showNotificationBadges: Bool = true
-    @AppStorage("IncludeHiddenApps") private var includeHiddenApps: Bool = true
-    @AppStorage("IncludeMinimizedApps") private var includeMinimizedApps: Bool = true
+//    @AppStorage("IncludeHiddenApps") private var includeHiddenApps: Bool = true
+//    @AppStorage("IncludeMinimizedApps") private var includeMinimizedApps: Bool = true
+    @AppStorage("HiddenAppsPlacement") private var hiddenPlacementRaw: Int = PlacementPreference.normal.rawValue
+    @AppStorage("MinimizedAppsPlacement") private var minimizedPlacementRaw: Int = PlacementPreference.normal.rawValue
     @AppStorage("switcherOpenDelayMS") private var switcherOpenDelayMS: Int = 100
     
     var body: some View {
@@ -59,15 +61,21 @@ struct PreferencesView: View {
                         print("Preference changed: Show Badges = \(showNotificationBadges)")
                     }
                 
-                Toggle("Include Hidden Apps", isOn: $includeHiddenApps)
-                    .onChange(of: includeHiddenApps) { _ in
-                        print("Preference changed: Include Hidden Apps = \(includeHiddenApps)")
-                    }
+                Picker("Hidden apps", selection: $hiddenPlacementRaw) {
+                    Text("Normal").tag(PlacementPreference.normal.rawValue)
+                    Text("At the end").tag(PlacementPreference.atEnd.rawValue)
+                    Text("Exclude").tag(PlacementPreference.exclude.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: hiddenPlacementRaw) { _ in print("Preference changed: HiddenAppsPlacement = \(hiddenPlacementRaw)") }
 
-                Toggle("Include Minimized Apps", isOn: $includeMinimizedApps)
-                    .onChange(of: includeMinimizedApps) { _ in
-                        print("Preference changed: Include Minimized Apps = \(includeMinimizedApps)")
-                    }
+                Picker("Minimized windows", selection: $minimizedPlacementRaw) {
+                    Text("Normal").tag(PlacementPreference.normal.rawValue)
+                    Text("At the end").tag(PlacementPreference.atEnd.rawValue)
+                    Text("Exclude").tag(PlacementPreference.exclude.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: minimizedPlacementRaw) { _ in print("Preference changed: MinimizedAppsPlacement = \(minimizedPlacementRaw)") }
             }
             
             Section(header: Text("Layout")) {

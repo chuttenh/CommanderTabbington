@@ -41,6 +41,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Register default for switcher open delay (milliseconds)
         UserDefaults.standard.register(defaults: ["switcherOpenDelayMS": 100])
+        UserDefaults.standard.register(defaults: [
+            "HiddenAppsPlacement": PlacementPreference.normal.rawValue,
+            "MinimizedAppsPlacement": PlacementPreference.normal.rawValue
+        ])
         
         // A. Check for Accessibility Permissions immediately on launch.
         // Without this, the app cannot see or control other windows.

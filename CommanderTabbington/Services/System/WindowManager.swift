@@ -20,6 +20,9 @@ class WindowManager {
         // .excludeDesktopElements: Hides the wallpaper and desktop icons.
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         
+        let hiddenPref = PreferenceUtils.hiddenPlacement()
+        let minimizedPref = PreferenceUtils.minimizedPlacement()
+        
         // 2. Query Core Graphics
         // This returns a CFArray of CFDictionaries.
         guard let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
@@ -69,16 +72,16 @@ class WindowManager {
         var includedIDs = Set(windows.map { $0.windowID })
 
         // Preferences for inclusion at the window level
-        let includeHidden = UserDefaults.standard.object(forKey: "IncludeHiddenApps") as? Bool ?? true
-        let includeMinimized = UserDefaults.standard.object(forKey: "IncludeMinimizedApps") as? Bool ?? true
+        // let includeHidden = UserDefaults.standard.object(forKey: "IncludeHiddenApps") as? Bool ?? true
+        // let includeMinimized = UserDefaults.standard.object(forKey: "IncludeMinimizedApps") as? Bool ?? true
 
         // If either preference allows additional windows beyond on-screen ones, merge from Accessibility
-        if includeHidden || includeMinimized {
+        if hiddenPref != .exclude || minimizedPref != .exclude {
             let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
             for appRef in running {
-                let isHidden = appRef.isHidden
-                // If app is hidden and we don't include hidden, skip its windows entirely
-                if isHidden && !includeHidden { continue }
+                // let isHidden = appRef.isHidden
+                // if isHidden && !includeHidden { continue }
+                let appHidden = appRef.isHidden
 
                 let appAX = AXUIElementCreateApplication(appRef.processIdentifier)
                 var axWindowsRef: CFTypeRef?
@@ -100,7 +103,17 @@ class WindowManager {
                            let min = minRef as? Bool {
                             isMinimized = min
                         }
-                        if isMinimized && !includeMinimized { continue }
+                        let tier: VisibilityTier
+                        if isMinimized {
+                            if minimizedPref == .exclude { continue }
+                            tier = .minimized
+                        } else if appHidden {
+                            if hiddenPref == .exclude { continue }
+                            tier = .hidden
+                        } else {
+                            // Not minimized and app not hidden; if it wasn't in CG list, skip to avoid duplicates
+                            continue
+                        }
 
                         // Title
                         var titleRef: CFTypeRef?
@@ -120,7 +133,8 @@ class WindowManager {
                             ownerPID: appRef.processIdentifier,
                             owningApplication: appRef,
                             appIcon: appRef.icon,
-                            frame: .zero
+                            frame: .zero,
+                            tier: tier
                         )
                         windows.append(window)
                         includedIDs.insert(wid)
@@ -138,12 +152,17 @@ class WindowManager {
     func getOpenApps() -> [SystemApp] {
         // Visible windows are used to compute counts and recent ordering
         let windows = getOpenWindows()
+        
+        let hiddenPref = PreferenceUtils.hiddenPlacement()
+        let minimizedPref = PreferenceUtils.minimizedPlacement()
+        
         // Group windows by owning PID for counts
-        let grouped = Dictionary(grouping: windows, by: { $0.ownerPID })
+        // let grouped = Dictionary(grouping: windows, by: { $0.ownerPID })
+        let groupedVisible = Dictionary(grouping: windows.filter { $0.tier == .normal }, by: { $0.ownerPID })
 
         // Preferences for inclusion
-        let includeHidden = UserDefaults.standard.object(forKey: "IncludeHiddenApps") as? Bool ?? true
-        let includeMinimized = UserDefaults.standard.object(forKey: "IncludeMinimizedApps") as? Bool ?? true
+        // let includeHidden = UserDefaults.standard.object(forKey: "IncludeHiddenApps") as? Bool ?? true
+        // let includeMinimized = UserDefaults.standard.object(forKey: "IncludeMinimizedApps") as? Bool ?? true
 
         // Enumerate running apps (regular apps only)
         let running = NSWorkspace.shared.runningApplications
@@ -162,25 +181,36 @@ class WindowManager {
             if let bid = appRef.bundleIdentifier, ignoredBundleIDs.contains(bid) { continue }
             if let name = appRef.localizedName, ignoredAppNames.contains(name) { continue }
 
-            // Apply hidden preference (app-level)
-            let isHidden = appRef.isHidden
-            if !includeHidden && isHidden { continue }
+            let appHidden = appRef.isHidden
 
             let pid = appRef.processIdentifier
-            let visibleWindowCount = grouped[pid]?.count ?? 0
+            let visibleWindowCount = groupedVisible[pid]?.count ?? 0
 
             // An app is considered "all minimized" if it's not hidden and has no visible windows
-            let isAllMinimized = !isHidden && (visibleWindowCount == 0)
-            if !includeMinimized && isAllMinimized { continue }
+            let isAllMinimized = !appHidden && (visibleWindowCount == 0)
+            if appHidden && hiddenPref == .exclude { continue }
+            if isAllMinimized && minimizedPref == .exclude { continue }
 
             let name = appRef.localizedName ?? "Unknown"
             let icon = appRef.icon
+
+            var tier: VisibilityTier = .normal
+            if appHidden {
+                if hiddenPref == .atEnd {
+                    tier = .hidden
+                }
+            } else if isAllMinimized {
+                if minimizedPref == .atEnd {
+                    tier = .minimized
+                }
+            }
 
             var app = SystemApp(ownerPID: pid,
                                 appName: name,
                                 owningApplication: appRef,
                                 appIcon: icon,
-                                windowCount: visibleWindowCount)
+                                windowCount: visibleWindowCount,
+                                tier: tier)
             if UserDefaults.standard.object(forKey: "showNotificationBadges") as? Bool ?? true {
                 app.badgeCount = DockBadgeService.shared.badgeCount(for: appRef)
             }

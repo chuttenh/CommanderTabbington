@@ -108,3 +108,13 @@ final class WindowRecents {
         }
     }
 }
+extension Array where Element == SystemWindow {
+    mutating func sortByTierAndRecency() {
+        // Stable partition by tier while preserving original order (which is already MRU-sorted)
+        let normal: [SystemWindow] = self.filter { $0.tier == VisibilityTier.normal }
+        let hidden: [SystemWindow] = self.filter { $0.tier == VisibilityTier.hidden }
+        let minimized: [SystemWindow] = self.filter { $0.tier == VisibilityTier.minimized }
+        self = normal + hidden + minimized
+    }
+}
+

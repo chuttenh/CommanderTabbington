@@ -171,10 +171,25 @@ class AppState: ObservableObject {
     private func refreshCurrentList() {
         switch mode {
         case .perApp:
-            let apps = WindowManager.shared.getOpenApps()
+            var apps = WindowManager.shared.getOpenApps()
+            // Sort by tier then MRU; inside tier preserve existing ordering rules
+            apps.sortByTierAndRecency()
             self.visibleApps = apps
         case .perWindow:
-            let windows = WindowManager.shared.getOpenWindows()
+            var windows = WindowManager.shared.getOpenWindows()
+            // Normalize tier according to current preferences (map to .normal when preference is .normal)
+            let hiddenPref = PreferenceUtils.hiddenPlacement()
+            let minimizedPref = PreferenceUtils.minimizedPlacement()
+            if hiddenPref == .normal || minimizedPref == .normal {
+                windows = windows.map { w in
+                    var copy = w
+                    if w.tier == .hidden && hiddenPref == .normal { copy.tier = .normal }
+                    if w.tier == .minimized && minimizedPref == .normal { copy.tier = .normal }
+                    return copy
+                }
+            }
+            // Sort by tier then MRU
+            windows.sortByTierAndRecency()
             self.visibleWindows = windows
         }
     }

@@ -7,6 +7,15 @@ struct SwitcherView: View {
     let itemWidth: CGFloat = 90
     let itemHeight: CGFloat = 110
     let spacing: CGFloat = 12
+
+    private var hasSecondTier: Bool {
+        switch appState.mode {
+        case .perApp:
+            return appState.visibleApps.contains { $0.tier != .normal }
+        case .perWindow:
+            return appState.visibleWindows.contains { $0.tier != .normal }
+        }
+    }
     
     var body: some View {
         ZStack {
@@ -23,34 +32,70 @@ struct SwitcherView: View {
                         let columns = [GridItem(.adaptive(minimum: itemWidth), spacing: spacing, alignment: .center)]
                         LazyVGrid(columns: columns, alignment: .center, spacing: spacing) {
                             if appState.mode == .perApp {
-                                ForEach(Array(appState.visibleApps.enumerated()), id: \.element.id) { index, app in
-                                    AppCardView(
-                                        app: app,
-                                        isSelected: index == appState.selectedIndex
-                                    )
-                                    .frame(width: itemWidth, height: itemHeight)
-                                    .id(app.id)
-                                    .onTapGesture {
-                                        appState.selectedIndex = index
-                                        appState.commitSelection()
+                                let enumeratedApps = Array(appState.visibleApps.enumerated())
+                                let mainApps = enumeratedApps.filter { $0.element.tier == .normal }
+                                let hiddenApps = enumeratedApps.filter { $0.element.tier == .hidden }
+                                let minimizedApps = enumeratedApps.filter { $0.element.tier == .minimized }
+
+                                let tiers: [[(offset: Int, element: SystemApp)]] = [mainApps, hiddenApps, minimizedApps]
+                                ForEach(Array(tiers.enumerated()), id: \.offset) { tIndex, tierApps in
+                                    if tIndex > 0, hasSecondTier, !tierApps.isEmpty {
+                                        Rectangle()
+                                            .fill(Color.secondary.opacity(0.3))
+                                            .frame(width: 1)
+                                            .frame(height: itemHeight)
+                                            .padding(.horizontal, 6)
+                                    }
+                                    ForEach(tierApps, id: \.element.id) { pair in
+                                        let globalIndex = pair.offset
+                                        let app = pair.element
+                                        AppCardView(
+                                            app: app,
+                                            isSelected: globalIndex == appState.selectedIndex
+                                        )
+                                        .frame(width: itemWidth, height: itemHeight)
+                                        .id(app.id)
+                                        .onTapGesture {
+                                            appState.selectedIndex = globalIndex
+                                            appState.commitSelection()
+                                        }
                                     }
                                 }
                             } else {
-                                ForEach(Array(appState.visibleWindows.enumerated()), id: \.element.id) { index, window in
-                                    AppCardView(
-                                        app: SystemApp(ownerPID: window.ownerPID,
-                                                       appName: window.appName,
-                                                       owningApplication: window.owningApplication,
-                                                       appIcon: window.appIcon,
-                                                       windowCount: 1),
-                                        isSelected: index == appState.selectedIndex,
-                                        subtitle: window.title
-                                    )
-                                    .frame(width: itemWidth, height: itemHeight)
-                                    .id(window.windowID)
-                                    .onTapGesture {
-                                        appState.selectedIndex = index
-                                        appState.commitSelection()
+                                let enumeratedWins = Array(appState.visibleWindows.enumerated())
+                                let mainWins = enumeratedWins.filter { $0.element.tier == .normal }
+                                let hiddenWins = enumeratedWins.filter { $0.element.tier == .hidden }
+                                let minimizedWins = enumeratedWins.filter { $0.element.tier == .minimized }
+
+                                let tiersW: [[(offset: Int, element: SystemWindow)]] = [mainWins, hiddenWins, minimizedWins]
+                                ForEach(Array(tiersW.enumerated()), id: \.offset) { tIndex, tierWins in
+                                    if tIndex > 0, hasSecondTier, !tierWins.isEmpty {
+                                        Rectangle()
+                                            .fill(Color.secondary.opacity(0.3))
+                                            .frame(width: 1)
+                                            .frame(height: itemHeight)
+                                            .padding(.horizontal, 6)
+                                    }
+                                    ForEach(tierWins, id: \.element.id) { pair in
+                                        let globalIndex = pair.offset
+                                        let window = pair.element
+                                        AppCardView(
+                                            app: SystemApp(ownerPID: window.ownerPID,
+                                                           appName: window.appName,
+                                                           owningApplication: window.owningApplication,
+                                                           appIcon: window.appIcon,
+                                                           windowCount: 1,
+                                                           badgeCount: nil,
+                                                           tier: window.tier),
+                                            isSelected: globalIndex == appState.selectedIndex,
+                                            subtitle: window.title
+                                        )
+                                        .frame(width: itemWidth, height: itemHeight)
+                                        .id(window.windowID)
+                                        .onTapGesture {
+                                            appState.selectedIndex = globalIndex
+                                            appState.commitSelection()
+                                        }
                                     }
                                 }
                             }
