@@ -128,6 +128,12 @@ class AppState: ObservableObject {
         // Optional: Return focus to previousApp if needed
     }
     
+    /// Public trigger to refresh the currently visible list (apps or windows),
+    /// respecting the current switcher mode.
+    func refreshNow() {
+        refreshCurrentList()
+    }
+    
     // MARK: - Private Helpers
     
     private func refreshCurrentList() {

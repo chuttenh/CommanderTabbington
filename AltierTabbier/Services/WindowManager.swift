@@ -2,6 +2,10 @@ import Cocoa
 import CoreGraphics
 import ScreenCaptureKit
 import Foundation
+import ApplicationServices
+
+// Not provided as a Swift constant; define it for Accessibility API usage
+private let kAXWindowNumberAttribute: CFString = "AXWindowNumber" as CFString
 
 class WindowManager {
     
@@ -61,6 +65,70 @@ class WindowManager {
             windows.append(window)
         }
         
+        // Build a set of already included window IDs to avoid duplicates
+        var includedIDs = Set(windows.map { $0.windowID })
+
+        // Preferences for inclusion at the window level
+        let includeHidden = UserDefaults.standard.object(forKey: "IncludeHiddenApps") as? Bool ?? true
+        let includeMinimized = UserDefaults.standard.object(forKey: "IncludeMinimizedApps") as? Bool ?? true
+
+        // If either preference allows additional windows beyond on-screen ones, merge from Accessibility
+        if includeHidden || includeMinimized {
+            let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+            for appRef in running {
+                let isHidden = appRef.isHidden
+                // If app is hidden and we don't include hidden, skip its windows entirely
+                if isHidden && !includeHidden { continue }
+
+                let appAX = AXUIElementCreateApplication(appRef.processIdentifier)
+                var axWindowsRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(appAX, kAXWindowsAttribute as CFString, &axWindowsRef) == .success,
+                   let axWindows = axWindowsRef as? [AXUIElement] {
+                    for axWin in axWindows {
+                        // Read window number to map to CGWindowID
+                        var numberRef: CFTypeRef?
+                        guard AXUIElementCopyAttributeValue(axWin, kAXWindowNumberAttribute as CFString, &numberRef) == .success,
+                              let number = numberRef as? Int,
+                              number != 0 else { continue }
+                        let wid = CGWindowID(number)
+                        if includedIDs.contains(wid) { continue }
+
+                        // Check minimized state
+                        var minRef: CFTypeRef?
+                        var isMinimized = false
+                        if AXUIElementCopyAttributeValue(axWin, kAXMinimizedAttribute as CFString, &minRef) == .success,
+                           let min = minRef as? Bool {
+                            isMinimized = min
+                        }
+                        if isMinimized && !includeMinimized { continue }
+
+                        // Title
+                        var titleRef: CFTypeRef?
+                        let title: String = {
+                            if AXUIElementCopyAttributeValue(axWin, kAXTitleAttribute as CFString, &titleRef) == .success,
+                               let t = titleRef as? String, !t.isEmpty {
+                                return t
+                            }
+                            return ""
+                        }()
+
+                        let ownerName = appRef.localizedName ?? "Unknown"
+                        let window = SystemWindow(
+                            windowID: wid,
+                            title: title,
+                            appName: ownerName,
+                            ownerPID: appRef.processIdentifier,
+                            owningApplication: appRef,
+                            appIcon: appRef.icon,
+                            frame: .zero
+                        )
+                        windows.append(window)
+                        includedIDs.insert(wid)
+                    }
+                }
+            }
+        }
+        
         var sorted = windows
         WindowRecents.shared.sortWindowsByRecency(&sorted)
         return sorted
@@ -68,27 +136,54 @@ class WindowManager {
     
     /// Returns one entry per running app that has at least one visible window.
     func getOpenApps() -> [SystemApp] {
+        // Visible windows are used to compute counts and recent ordering
         let windows = getOpenWindows()
-        guard !windows.isEmpty else { return [] }
-
-        // Group windows by owning PID
+        // Group windows by owning PID for counts
         let grouped = Dictionary(grouping: windows, by: { $0.ownerPID })
 
+        // Preferences for inclusion
+        let includeHidden = UserDefaults.standard.object(forKey: "IncludeHiddenApps") as? Bool ?? true
+        let includeMinimized = UserDefaults.standard.object(forKey: "IncludeMinimizedApps") as? Bool ?? true
+
+        // Enumerate running apps (regular apps only)
+        let running = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular }
+
         var apps: [SystemApp] = []
-        apps.reserveCapacity(grouped.count)
+        apps.reserveCapacity(running.count)
 
-        for (pid, group) in grouped {
-            // Prefer non-empty app name from any window in the group
-            let name = group.first?.appName ?? "Unknown"
-            let appRef = group.first?.owningApplication
-            let icon = appRef?.icon
-            let count = group.count
+        let ignoredBundleIDs: Set<String> = [
+            Bundle.main.bundleIdentifier ?? "",
+        ].filter { !$0.isEmpty }.reduce(into: Set<String>()) { $0.insert($1) }
+        let ignoredAppNames: Set<String> = ["Dock", "Window Server", "Control Center", "Notification Center", "AltierTabbier"]
 
-            let app = SystemApp(ownerPID: pid,
+        for appRef in running {
+            // Skip our own app and system components by name or bundle id
+            if let bid = appRef.bundleIdentifier, ignoredBundleIDs.contains(bid) { continue }
+            if let name = appRef.localizedName, ignoredAppNames.contains(name) { continue }
+
+            // Apply hidden preference (app-level)
+            let isHidden = appRef.isHidden
+            if !includeHidden && isHidden { continue }
+
+            let pid = appRef.processIdentifier
+            let visibleWindowCount = grouped[pid]?.count ?? 0
+
+            // An app is considered "all minimized" if it's not hidden and has no visible windows
+            let isAllMinimized = !isHidden && (visibleWindowCount == 0)
+            if !includeMinimized && isAllMinimized { continue }
+
+            let name = appRef.localizedName ?? "Unknown"
+            let icon = appRef.icon
+
+            var app = SystemApp(ownerPID: pid,
                                 appName: name,
                                 owningApplication: appRef,
                                 appIcon: icon,
-                                windowCount: count)
+                                windowCount: visibleWindowCount)
+            if UserDefaults.standard.object(forKey: "showNotificationBadges") as? Bool ?? true {
+                app.badgeCount = DockBadgeService.shared.badgeCount(for: appRef)
+            }
             apps.append(app)
         }
 

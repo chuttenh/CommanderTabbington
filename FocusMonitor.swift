@@ -1,6 +1,10 @@
 import Cocoa
 import ApplicationServices
 
+extension Notification.Name {
+    static let windowVisibilityDidChange = Notification.Name("WindowVisibilityDidChange")
+}
+
 final class FocusMonitor {
     static let shared = FocusMonitor()
 
@@ -19,6 +23,9 @@ final class FocusMonitor {
             if notification == kAXFocusedWindowChangedNotification as String || notification == kAXFocusedUIElementChangedNotification as String {
                 FocusMonitor.handleFocusChange()
             }
+            if notification == kAXWindowMiniaturizedNotification as String || notification == kAXWindowDeminiaturizedNotification as String {
+                FocusMonitor.handleWindowStateChange()
+            }
         }
         let result = AXObserverCreate(pid, callback, &observerRef)
         if result != .success || observerRef == nil {
@@ -29,6 +36,8 @@ final class FocusMonitor {
         if let obs = observer {
             AXObserverAddNotification(obs, systemElement, kAXFocusedWindowChangedNotification as CFString, nil)
             AXObserverAddNotification(obs, systemElement, kAXFocusedUIElementChangedNotification as CFString, nil)
+            AXObserverAddNotification(obs, systemElement, kAXWindowMiniaturizedNotification as CFString, nil)
+            AXObserverAddNotification(obs, systemElement, kAXWindowDeminiaturizedNotification as CFString, nil)
             let source = AXObserverGetRunLoopSource(obs)
             runLoopSource = source
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
@@ -61,5 +70,10 @@ final class FocusMonitor {
                 AppRecents.shared.bump(pid: ownerPID)
             }
         }
+    }
+    
+    private static func handleWindowStateChange() {
+        // Notify listeners (e.g., AppDelegate) to refresh lists when window minimized/unminimized changes
+        NotificationCenter.default.post(name: .windowVisibilityDidChange, object: nil)
     }
 }

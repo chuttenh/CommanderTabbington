@@ -22,6 +22,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var distributedObserver: NSObjectProtocol?
     var defaultsObserver: NSObjectProtocol?
     
+    var workspaceObservers: [NSObjectProtocol] = []
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Strict single-instance enforcement: if another instance is running, activate it and ask it to open Preferences, then quit.
         if let bundleID = Bundle.main.bundleIdentifier {
@@ -105,6 +107,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.updateOverlaySize()
         }
         
+        // Observe workspace app visibility and lifecycle to keep list in sync
+        let center = NSWorkspace.shared.notificationCenter
+        let handlers: [(Notification.Name, (Notification) -> Void)] = [
+            (NSWorkspace.didHideApplicationNotification, { [weak self] _ in self?.refreshIfVisible() }),
+            (NSWorkspace.didUnhideApplicationNotification, { [weak self] _ in self?.refreshIfVisible() }),
+            (NSWorkspace.didActivateApplicationNotification, { [weak self] _ in self?.refreshIfVisible() }),
+            (NSWorkspace.didLaunchApplicationNotification, { [weak self] _ in self?.refreshIfVisible() }),
+            (NSWorkspace.didTerminateApplicationNotification, { [weak self] _ in self?.refreshIfVisible() })
+        ]
+        for (name, handler) in handlers {
+            let token = center.addObserver(forName: name, object: nil, queue: .main, using: handler)
+            workspaceObservers.append(token)
+        }
+
+        // Observe our preferences changes and refresh if needed
+        NotificationCenter.default.addObserver(forName: .dockBadgePreferencesDidChange, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshIfVisible()
+        }
+        
+        NotificationCenter.default.addObserver(forName: .windowVisibilityDidChange, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshIfVisible()
+        }
+        
         // Start keyboard hooks after UI bindings are ready
         InputListener.shared.appState = appState
         InputListener.shared.start()
@@ -122,6 +147,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let obs = distributedObserver {
             DistributedNotificationCenter.default().removeObserver(obs)
         }
+        for token in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(token) }
+        workspaceObservers.removeAll()
     }
     
     // MARK: - Setup Methods
@@ -306,6 +333,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // 3. Show it
         preferencesWindow?.makeKeyAndOrderFront(nil)
+    }
+    
+    private func refreshIfVisible() {
+        appState.refreshNow()
     }
 }
 

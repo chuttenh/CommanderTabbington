@@ -17,6 +17,7 @@ struct SystemApp: Identifiable, Hashable {
 
     // Aggregates
     var windowCount: Int
+    var badgeCount: Int? = nil
 
     static func == (lhs: SystemApp, rhs: SystemApp) -> Bool {
         lhs.ownerPID == rhs.ownerPID

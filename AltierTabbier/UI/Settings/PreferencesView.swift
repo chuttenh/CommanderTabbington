@@ -7,6 +7,9 @@ struct PreferencesView: View {
     @AppStorage("showDesktopWindows") private var showDesktopWindows: Bool = false
     @AppStorage("maxWidthFraction") private var maxWidthFraction: Double = 0.9
     @AppStorage("maxVisibleRows") private var maxVisibleRows: Int = 2
+    @AppStorage("showNotificationBadges") private var showNotificationBadges: Bool = true
+    @AppStorage("IncludeHiddenApps") private var includeHiddenApps: Bool = true
+    @AppStorage("IncludeMinimizedApps") private var includeMinimizedApps: Bool = true
     
     var body: some View {
         Form {
@@ -32,6 +35,21 @@ struct PreferencesView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.top, 8)
+                
+                Toggle("Show Notification Badges", isOn: $showNotificationBadges)
+                    .onChange(of: showNotificationBadges) { _ in
+                        print("Preference changed: Show Badges = \(showNotificationBadges)")
+                    }
+                
+                Toggle("Include Hidden Apps", isOn: $includeHiddenApps)
+                    .onChange(of: includeHiddenApps) { _ in
+                        print("Preference changed: Include Hidden Apps = \(includeHiddenApps)")
+                    }
+
+                Toggle("Include Minimized Apps", isOn: $includeMinimizedApps)
+                    .onChange(of: includeMinimizedApps) { _ in
+                        print("Preference changed: Include Minimized Apps = \(includeMinimizedApps)")
+                    }
             }
             
             Section(header: Text("Layout")) {
@@ -69,7 +87,7 @@ struct PreferencesView: View {
             }
         }
         .padding(20)
-        .frame(width: 350, height: 200)
+        .frame(width: 350, height: 260)
     }
 }
 
