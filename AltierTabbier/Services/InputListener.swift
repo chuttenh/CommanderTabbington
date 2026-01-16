@@ -20,6 +20,8 @@ class InputListener {
     // The tap must be stored as a CFMachPort
     var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var localEventMonitor: Any?
+    private var commandReleasePoller: Timer?
     
     #if DEBUG
         var enableDiagnostics: Bool = true
@@ -52,6 +54,7 @@ class InputListener {
             if let t = self.secureInputTimer { t.invalidate(); self.secureInputTimer = nil }
             if let t = self.postStartDiagnosticTimer { t.invalidate(); self.postStartDiagnosticTimer = nil }
             if let m = self.globalKeyMonitor { NSEvent.removeMonitor(m); self.globalKeyMonitor = nil }
+            if let m = self.localEventMonitor { NSEvent.removeMonitor(m); self.localEventMonitor = nil }
             
             #if DEBUG
             if self.enableDiagnostics {
@@ -64,6 +67,59 @@ class InputListener {
                 // Add a global NSEvent monitor to help trigger Input Monitoring prompt and verify key events
                 self.globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { e in
                     print("🛰️ NSEvent global key: \(e.keyCode) flags: \(e.modifierFlags)")
+                }
+                
+                // Local monitor fallback: works when our app is key and a text field has focus
+                self.localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .keyUp]) { [weak self] e in
+                    guard let self = self else { return e }
+                    let keyCode = e.keyCode
+                    let hasCommand = e.modifierFlags.contains(.command)
+
+                    switch e.type {
+                    case .keyDown:
+                        if hasCommand && keyCode == UInt16(self.kVK_Tab) {
+                            if self.enableDiagnostics { print("🧩 Local monitor detected Cmd+Tab (fallback)") }
+                            // Avoid double-trigger if HID tap already handled
+                            if !self.receivedKeyboardEvent {
+                                DispatchQueue.main.async { [weak self] in
+                                    guard let self = self else { return }
+                                    let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
+                                    appState?.handleUserActivation(direction: e.modifierFlags.contains(.shift) ? .previous : .next)
+                                }
+                            }
+                            return nil // suppress in our app
+                        }
+                    case .flagsChanged:
+                        let isCmdNow = hasCommand
+                        if !isCmdNow {
+                            let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
+                            if let appState = appState, appState.isSwitcherVisible {
+                                if self.enableDiagnostics { print("✅ Local monitor committing on Command release (fallback)") }
+                                DispatchQueue.main.async { 
+                                    appState.commitSelection()
+                                    self.stopCommandReleasePoller()
+                                }
+                                return nil
+                            }
+                        }
+                    case .keyUp:
+                        if keyCode == UInt16(self.kVK_Tab) {
+                            if !hasCommand {
+                                let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
+                                if let appState = appState, appState.isSwitcherVisible {
+                                    if self.enableDiagnostics { print("✅ Local monitor committing on Tab keyUp (fallback)") }
+                                    DispatchQueue.main.async { 
+                                        appState.commitSelection()
+                                        self.stopCommandReleasePoller()
+                                    }
+                                }
+                            }
+                            return nil
+                        }
+                    default:
+                        break
+                    }
+                    return e
                 }
             }
             #endif
@@ -137,8 +193,10 @@ class InputListener {
         }
         // Diagnostics cleanup
         if let m = globalKeyMonitor { NSEvent.removeMonitor(m); globalKeyMonitor = nil }
+        if let m = localEventMonitor { NSEvent.removeMonitor(m); localEventMonitor = nil }
         secureInputTimer?.invalidate(); secureInputTimer = nil
         postStartDiagnosticTimer?.invalidate(); postStartDiagnosticTimer = nil
+        stopCommandReleasePoller()
     }
     
     func noteKeyboardEventReceived() {
@@ -147,6 +205,35 @@ class InputListener {
             self.postStartDiagnosticTimer?.invalidate()
             self.postStartDiagnosticTimer = nil
         }
+    }
+    
+    fileprivate func startCommandReleasePoller() {
+        stopCommandReleasePoller()
+        // Poll for Command key release independent of event delivery
+        commandReleasePoller = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            // If switcher not visible, stop polling
+            let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
+            guard let appState = appState, appState.isSwitcherVisible else {
+                self.stopCommandReleasePoller()
+                return
+            }
+            // Check current flags state for Command key
+            let flags = CGEventSource.flagsState(.combinedSessionState)
+            let commandDown = flags.contains(.maskCommand)
+            if !commandDown {
+                if self.enableDiagnostics { print("🕵️‍♂️ Poller detected Command release -> committing selection") }
+                DispatchQueue.main.async {
+                    appState.commitSelection()
+                }
+                self.stopCommandReleasePoller()
+            }
+        }
+    }
+
+    fileprivate func stopCommandReleasePoller() {
+        commandReleasePoller?.invalidate()
+        commandReleasePoller = nil
     }
 }
 
@@ -184,16 +271,14 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
             let direction: SelectionDirection = flags.contains(.maskShift) ? .previous : .next
             
             DispatchQueue.main.async {
-                if let appState = listener.appState {
+                let appState = listener.appState ?? (NSApp.delegate as? AppDelegate)?.appState
+                if let appState = appState {
                     if listener.enableDiagnostics {
                         print("🧩 InputListener will call handleUserActivation on AppState: \(Unmanaged.passUnretained(appState).toOpaque())")
                     }
                     appState.handleUserActivation(direction: direction)
-                } else if let appDelegate = NSApp.delegate as? AppDelegate {
-                    if listener.enableDiagnostics {
-                        print("🧷 Fallback to AppDelegate.appState for handleUserActivation")
-                    }
-                    appDelegate.appState.handleUserActivation(direction: direction)
+                    // Start release poller to handle cases where flagsChanged/keyUp are suppressed
+                    listener.startCommandReleasePoller()
                 } else {
                     print("❓ No AppState available to handle activation.")
                 }
@@ -210,12 +295,30 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let flags = event.flags
         let hasCommand = (flags.rawValue & CGEventFlags.maskCommand.rawValue) != 0
-        let cmdActive = hasCommand || listener.isCommandPressed
-        if cmdActive && keyCode == listener.kVK_Tab {
-            if listener.enableDiagnostics {
-                print("🛑 Suppressing Cmd+Tab keyUp (HID tap: \(listener.usingHIDTap))")
-                print("⬆️ keyUp Tab: hasCommand=\(hasCommand) cmdActive=\(cmdActive)")
+
+        // Diagnostic logging
+        if listener.enableDiagnostics {
+            print("⬆️ keyUp: keyCode=\(keyCode) hasCommand=\(hasCommand) isCmdPressed=\(listener.isCommandPressed)")
+        }
+
+        if keyCode == listener.kVK_Tab {
+            // If Command is no longer held, but our flagsChanged didn't fire (e.g., due to secure input or focus quirks),
+            // commit the selection as a fallback when Tab is released.
+            if !hasCommand {
+                if listener.enableDiagnostics { print("✅ Fallback commit on Tab keyUp (Command not held)") }
+                let appState = listener.appState ?? (NSApp.delegate as? AppDelegate)?.appState
+                if let appState = appState, appState.isSwitcherVisible {
+                    DispatchQueue.main.async {
+                        appState.commitSelection()
+                    }
+                    listener.stopCommandReleasePoller()
+                }
+                // Ensure we clear our internal state
+                listener.isCommandPressed = false
+            } else {
+                if listener.enableDiagnostics { print("🛑 Suppressing Cmd+Tab keyUp while Command still held") }
             }
+            // Always suppress Tab keyUp to avoid system App Switcher glitches
             return nil
         }
     }
@@ -252,6 +355,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
                     DispatchQueue.main.async {
                         appState.commitSelection()
                     }
+                    listener.stopCommandReleasePoller()
                 } else {
                     if listener.enableDiagnostics { print("⏭️ Skipping commit: switcher not visible at Command release") }
                 }
@@ -266,6 +370,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
                     DispatchQueue.main.async {
                         appState.commitSelection()
                     }
+                    listener.stopCommandReleasePoller()
                 } else {
                     if listener.enableDiagnostics { print("⏭️ Skipping commit (fallback): switcher not visible at Command release") }
                 }

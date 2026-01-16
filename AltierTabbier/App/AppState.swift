@@ -103,12 +103,25 @@ class AppState: ObservableObject {
             }
             let selectedApp = visibleApps[selectedIndex]
             print("Switching to app: \(selectedApp.appName) (PID: \(selectedApp.ownerPID))")
-            if let app = selectedApp.owningApplication {
-                let success = app.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
-                print(success ? "✅ App activation (all windows) requested successfully" : "⚠️ App activation (all windows) returned false")
-            } else {
+
+            // Prefer the stored NSRunningApplication, but fall back to resolving by PID if needed
+            let targetApp = selectedApp.owningApplication ?? NSRunningApplication(processIdentifier: selectedApp.ownerPID)
+
+            guard let app = targetApp else {
                 print("❓ No NSRunningApplication for selected app; cannot activate directly")
+                return
             }
+
+            // Try high-level activation first
+            let activated = app.activate(options: [.activateIgnoringOtherApps])
+            if activated {
+                print("✅ App activation requested successfully")
+            } else {
+                print("⚠️ App activation returned false; attempting AX-based bring-to-front fallback")
+            }
+
+            // Use AccessibilityService to ensure the app is unhidden and all windows are raised/focused.
+            AccessibilityService.shared.bringAllWindowsToFront(for: app)
         case .perWindow:
             guard visibleWindows.indices.contains(selectedIndex) else {
                 print("❌ Selection index out of range for visibleWindows: index=\(selectedIndex) count=\(visibleWindows.count)")
