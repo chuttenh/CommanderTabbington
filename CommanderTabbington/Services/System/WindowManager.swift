@@ -155,7 +155,7 @@ class WindowManager {
         let ignoredBundleIDs: Set<String> = [
             Bundle.main.bundleIdentifier ?? "",
         ].filter { !$0.isEmpty }.reduce(into: Set<String>()) { $0.insert($1) }
-        let ignoredAppNames: Set<String> = ["Dock", "Window Server", "Control Center", "Notification Center", "AltierTabbier"]
+        let ignoredAppNames: Set<String> = ["Dock", "Window Server", "Control Center", "Notification Center", "Commander Tabbington"]
 
         for appRef in running {
             // Skip our own app and system components by name or bundle id
@@ -221,7 +221,7 @@ class WindowManager {
         // D. System App Check
         // We generally don't want to switch to the Dock or the Window Server.
         if let appName = windowInfo[kCGWindowOwnerName as String] as? String {
-            let ignoredApps = ["Dock", "Window Server", "Control Center", "Notification Center", "AltierTabbier"]
+            let ignoredApps = ["Dock", "Window Server", "Control Center", "Notification Center", "Commander Tabbington"]
             if ignoredApps.contains(appName) {
                 return false
             }

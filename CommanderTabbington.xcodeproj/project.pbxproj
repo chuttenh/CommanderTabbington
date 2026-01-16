@@ -6,25 +6,14 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		799630082F18AAD800B8A0AC /* AppRecents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799630072F18AAD700B8A0AC /* AppRecents.swift */; };
-		7996300A2F18ABB200B8A0AC /* WindowRecents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799630092F18ABB200B8A0AC /* WindowRecents.swift */; };
-		7996300C2F18ACF600B8A0AC /* FocusMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7996300B2F18ACF600B8A0AC /* FocusMonitor.swift */; };
-		7996300E2F193EBE00B8A0AC /* DockBadgeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7996300D2F193EBE00B8A0AC /* DockBadgeService.swift */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
-		796E71BF2F17482E00D4FF1E /* AltierTabbier.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AltierTabbier.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		799630072F18AAD700B8A0AC /* AppRecents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRecents.swift; sourceTree = "<group>"; };
-		799630092F18ABB200B8A0AC /* WindowRecents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRecents.swift; sourceTree = "<group>"; };
-		7996300B2F18ACF600B8A0AC /* FocusMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusMonitor.swift; sourceTree = "<group>"; };
-		7996300D2F193EBE00B8A0AC /* DockBadgeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockBadgeService.swift; sourceTree = "<group>"; };
+		796E71BF2F17482E00D4FF1E /* CommanderTabbington.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CommanderTabbington.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		796E71C12F17482E00D4FF1E /* AltierTabbier */ = {
+		796E71C12F17482E00D4FF1E /* CommanderTabbington */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = AltierTabbier;
+			path = CommanderTabbington;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -43,19 +32,15 @@
 		796E71B62F17482E00D4FF1E = {
 			isa = PBXGroup;
 			children = (
-				796E71C12F17482E00D4FF1E /* AltierTabbier */,
+				796E71C12F17482E00D4FF1E /* CommanderTabbington */,
 				796E71C02F17482E00D4FF1E /* Products */,
-				799630072F18AAD700B8A0AC /* AppRecents.swift */,
-				799630092F18ABB200B8A0AC /* WindowRecents.swift */,
-				7996300B2F18ACF600B8A0AC /* FocusMonitor.swift */,
-				7996300D2F193EBE00B8A0AC /* DockBadgeService.swift */,
 			);
 			sourceTree = "<group>";
 		};
 		796E71C02F17482E00D4FF1E /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				796E71BF2F17482E00D4FF1E /* AltierTabbier.app */,
+				796E71BF2F17482E00D4FF1E /* CommanderTabbington.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -63,9 +48,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		796E71BE2F17482E00D4FF1E /* AltierTabbier */ = {
+		796E71BE2F17482E00D4FF1E /* CommanderTabbington */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 796E71CA2F17482F00D4FF1E /* Build configuration list for PBXNativeTarget "AltierTabbier" */;
+			buildConfigurationList = 796E71CA2F17482F00D4FF1E /* Build configuration list for PBXNativeTarget "CommanderTabbington" */;
 			buildPhases = (
 				796E71BB2F17482E00D4FF1E /* Sources */,
 				796E71BC2F17482E00D4FF1E /* Frameworks */,
@@ -76,13 +61,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				796E71C12F17482E00D4FF1E /* AltierTabbier */,
+				796E71C12F17482E00D4FF1E /* CommanderTabbington */,
 			);
-			name = AltierTabbier;
+			name = CommanderTabbington;
 			packageProductDependencies = (
 			);
 			productName = AltierTabbier;
-			productReference = 796E71BF2F17482E00D4FF1E /* AltierTabbier.app */;
+			productReference = 796E71BF2F17482E00D4FF1E /* CommanderTabbington.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -100,7 +85,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 796E71BA2F17482E00D4FF1E /* Build configuration list for PBXProject "AltierTabbier" */;
+			buildConfigurationList = 796E71BA2F17482E00D4FF1E /* Build configuration list for PBXProject "CommanderTabbington" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -114,7 +99,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				796E71BE2F17482E00D4FF1E /* AltierTabbier */,
+				796E71BE2F17482E00D4FF1E /* CommanderTabbington */,
 			);
 		};
 /* End PBXProject section */
@@ -134,10 +119,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7996300E2F193EBE00B8A0AC /* DockBadgeService.swift in Sources */,
-				7996300A2F18ABB200B8A0AC /* WindowRecents.swift in Sources */,
-				7996300C2F18ACF600B8A0AC /* FocusMonitor.swift in Sources */,
-				799630082F18AAD800B8A0AC /* AppRecents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -282,7 +263,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = org.bluefuzzball.AltierTabbier;
+				PRODUCT_BUNDLE_IDENTIFIER = org.bluefuzzball.CommanderTabbington;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -313,7 +294,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = org.bluefuzzball.AltierTabbier;
+				PRODUCT_BUNDLE_IDENTIFIER = org.bluefuzzball.CommanderTabbington;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -328,7 +309,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		796E71BA2F17482E00D4FF1E /* Build configuration list for PBXProject "AltierTabbier" */ = {
+		796E71BA2F17482E00D4FF1E /* Build configuration list for PBXProject "CommanderTabbington" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				796E71C82F17482F00D4FF1E /* Debug */,
@@ -337,7 +318,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		796E71CA2F17482F00D4FF1E /* Build configuration list for PBXNativeTarget "AltierTabbier" */ = {
+		796E71CA2F17482F00D4FF1E /* Build configuration list for PBXNativeTarget "CommanderTabbington" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				796E71CB2F17482F00D4FF1E /* Debug */,

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct AltierTabbierApp: App {
+struct CommanderTabbingtonApp: App {
     // 1. Connect the AppDelegate
     // In a utility app, the AppDelegate is the "Brain" that manages the
     // global hotkeys and the lifecycle, rather than the SwiftUI App struct.
@@ -15,3 +15,4 @@ struct AltierTabbierApp: App {
         }
     }
 }
+

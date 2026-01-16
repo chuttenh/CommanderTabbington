@@ -33,7 +33,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if let other = instances.first(where: { $0.processIdentifier != currentPID }) ?? instances.first {
                     other.activate(options: .activateIgnoringOtherApps)
                 }
-                DistributedNotificationCenter.default().post(name: Notification.Name("AltierTabbierOpenPreferences"), object: bundleID)
+                DistributedNotificationCenter.default().post(name: Notification.Name("CommanderTabbingtonOpenPreferences"), object: bundleID)
                 NSApp.terminate(nil)
                 return
             }
@@ -53,7 +53,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupOverlayWindow()
         
         // Listen for requests from secondary instances to open Preferences
-        distributedObserver = DistributedNotificationCenter.default().addObserver(forName: Notification.Name("AltierTabbierOpenPreferences"), object: nil, queue: .main) { [weak self] _ in
+        distributedObserver = DistributedNotificationCenter.default().addObserver(forName: Notification.Name("CommanderTabbingtonOpenPreferences"), object: nil, queue: .main) { [weak self] _ in
             guard let self = self else { return }
             NSApp.activate(ignoringOtherApps: true)
             self.openPreferences()
@@ -142,7 +142,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         AppRecents.shared.seedFromCurrentZOrderIfEmpty()
         WindowRecents.shared.seedFromCurrentZOrderIfEmpty()
         
-        print("AltierTabbier started.")
+        print("Commander Tabbington started.")
     }
     
     func applicationWillTerminate(_ notification: Notification) {
@@ -281,7 +281,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         if let button = statusItem?.button {
             // Use a system symbol for now (SF Symbols)
-            button.image = NSImage(systemSymbolName: "macwindow.on.rectangle", accessibilityDescription: "AltierTabbier")
+            button.image = NSImage(systemSymbolName: "macwindow.on.rectangle", accessibilityDescription: "Commander Tabbington")
         }
         
         let menu = NSMenu()
@@ -326,7 +326,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 backing: .buffered,
                 defer: false
             )
-            window.title = "AltierTabbier Preferences"
+            window.title = "Commander Tabbington Preferences"
             window.center()
             window.isReleasedWhenClosed = false // Keep it in memory when closed
             window.contentView = NSHostingView(rootView: contentView)

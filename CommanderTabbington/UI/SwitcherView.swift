@@ -16,7 +16,7 @@ struct SwitcherView: View {
             
             VStack(spacing: 0) {
                 // Header / Title (Optional, useful for debugging)
-                // Text("AltierTabbier").font(.caption).opacity(0.5).padding(.top, 10)
+                // Text("Commander Tabbington").font(.caption).opacity(0.5).padding(.top, 10)
                 
                 ScrollView(.vertical, showsIndicators: false) {
                     ScrollViewReader { proxy in
