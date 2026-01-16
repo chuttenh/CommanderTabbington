@@ -26,11 +26,14 @@ struct AppCardView: View {
                 }
                 .shadow(radius: isSelected ? 6 : 0)
                 .scaleEffect(isSelected ? 1.08 : 1.0)
+                .frame(height: 72, alignment: .bottom)
                 
                 VStack(spacing: 2) {
                     Text(app.appName)
                         .font(.headline)
                         .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .frame(height: 20, alignment: .top)
                     if let subtitle = subtitle, !subtitle.isEmpty {
                         Text(subtitle)
                             .font(.caption)
@@ -41,6 +44,7 @@ struct AppCardView: View {
                         Text("\(app.windowCount) windows")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
                     }
                 }
             }
@@ -56,14 +60,25 @@ struct AppCardView: View {
 }
 struct BadgeView: View {
     let count: Int
+    
+    private var fontSize: CGFloat {
+        let digits = String(count).count
+        switch digits {
+        case 1: return 12
+        case 2: return 11
+        case 3: return 10
+        default: return 9
+        }
+    }
+    
     var body: some View {
         ZStack {
             Circle()
                 .fill(Color.red)
-                .frame(width: 18, height: 18)
+                .frame(width: 20, height: 20)
             if count > 0 {
                 Text("\(count)")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: fontSize, weight: .bold))
                     .foregroundColor(.white)
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)

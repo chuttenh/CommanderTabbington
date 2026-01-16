@@ -104,8 +104,8 @@ class AppState: ObservableObject {
             let selectedApp = visibleApps[selectedIndex]
             print("Switching to app: \(selectedApp.appName) (PID: \(selectedApp.ownerPID))")
             if let app = selectedApp.owningApplication {
-                let success = app.activate(options: .activateIgnoringOtherApps)
-                print(success ? "✅ App activation requested successfully" : "⚠️ App activation returned false")
+                let success = app.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+                print(success ? "✅ App activation (all windows) requested successfully" : "⚠️ App activation (all windows) returned false")
             } else {
                 print("❓ No NSRunningApplication for selected app; cannot activate directly")
             }
