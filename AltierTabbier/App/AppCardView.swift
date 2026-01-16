@@ -31,10 +31,10 @@ struct AppCardView: View {
                             .offset(x: 5, y: 3)
                     }
                 }
-                .shadow(radius: isSelected ? 6 : 0)
+                .shadow(color: Color.black.opacity(isSelected ? 0.55 : 0.0), radius: isSelected ? 8 : 0, x: 0, y: 4)
                 .scaleEffect(isSelected ? 1.08 : 1.0, anchor: .top)
-                .padding(.top, 3)
-                .frame(height: 72, alignment: .top)
+                .padding(.top, 6)
+                .frame(height: 70, alignment: .top)
                 
                 VStack(spacing: 2) {
                     Text(app.appName)
