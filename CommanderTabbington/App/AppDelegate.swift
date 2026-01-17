@@ -284,8 +284,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
         if let button = statusItem?.button {
-            // Use a system symbol for now (SF Symbols)
-            button.image = NSImage(systemSymbolName: "macwindow.on.rectangle", accessibilityDescription: "Commander Tabbington")
+            let img = NSImage(named: "StatusBarIcon")
+            img?.isTemplate = true
+            button.image = img
         }
         
         let menu = NSMenu()
