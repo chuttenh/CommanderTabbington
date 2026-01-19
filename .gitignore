@@ -1,3 +1,4 @@
 art/*
 !art/*.*
 **/.DS_Store
+**/xcuserdata/
