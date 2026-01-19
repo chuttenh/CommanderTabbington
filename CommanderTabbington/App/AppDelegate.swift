@@ -1,6 +1,7 @@
 import Cocoa
 import SwiftUI
 import Combine
+import OSLog
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     
@@ -146,7 +147,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         AppRecents.shared.seedFromCurrentZOrderIfEmpty()
         WindowRecents.shared.seedFromCurrentZOrderIfEmpty()
         
-        print("Commander Tabbington started.")
+        AppLog.app.info("🚀 Commander Tabbington started.")
     }
     
     func applicationWillTerminate(_ notification: Notification) {
@@ -305,7 +306,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // In a real app, we would show an alert dialog here prompting the user
             // and providing a button to open System Settings.
             // For now, we just print a warning.
-            print("WARNING: Accessibility permissions not granted. Window switching will not work.")
+            AppLog.app.log("⚠️ Warning: Accessibility permissions not granted. Window switching will not work.")
             
             // This options dictionary helps deep-link to the privacy settings
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
@@ -347,4 +348,3 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appState.refreshNow()
     }
 }
-

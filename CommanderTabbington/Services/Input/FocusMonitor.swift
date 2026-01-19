@@ -1,5 +1,6 @@
 import Cocoa
 import ApplicationServices
+import OSLog
 
 extension Notification.Name {
     static let windowVisibilityDidChange = Notification.Name("WindowVisibilityDidChange")
@@ -29,7 +30,7 @@ final class FocusMonitor {
         }
         let result = AXObserverCreate(pid, callback, &observerRef)
         if result != .success || observerRef == nil {
-            print("⚠️ FocusMonitor: Failed to create AXObserver (result=\(result.rawValue))")
+            AppLog.focus.error("⚠️ Failed to create AXObserver (result=\(result.rawValue, privacy: .public))")
             return
         }
         observer = observerRef

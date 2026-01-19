@@ -1,6 +1,7 @@
 import Cocoa
 import CoreGraphics
 import Carbon
+import OSLog
 
 class InputListener {
     
@@ -37,13 +38,13 @@ class InputListener {
     private init() {}
     
     func start() {
-        print("--- Attempting to Start Input Listener (Session Tap) ---")
+        AppLog.input.info("🎛️ Attempting to start Input Listener (Session Tap).")
         let trusted = AXIsProcessTrusted()
-        print("🔒 AXIsProcessTrusted: \(trusted)")
+        AppLog.input.info("🔒 AXIsProcessTrusted: \(trusted, privacy: .public)")
         
         // Check for Secure Input (can block session taps, sometimes affects HID taps)
         if IsSecureEventInputEnabled() {
-            print("⚠️ WARNING: Secure Input is enabled! Keyboard events may be suppressed.")
+            AppLog.input.log("⚠️ Warning: Secure Input is enabled. Keyboard events may be suppressed.")
         }
         
         // DELAY START to ensure RunLoop is ready
@@ -61,12 +62,12 @@ class InputListener {
                 // Periodically log Secure Input status
                 self.secureInputTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
                     if IsSecureEventInputEnabled() {
-                        print("🔐 Secure Input is ON – keyboard taps will be blocked.")
+                        AppLog.input.debug("🔐 Secure Input is ON; keyboard taps will be blocked.")
                     }
                 }
                 // Add a global NSEvent monitor to help trigger Input Monitoring prompt and verify key events
                 self.globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { e in
-                    print("🛰️ NSEvent global key: \(e.keyCode) flags: \(e.modifierFlags)")
+                    AppLog.input.debug("🛰️ NSEvent global key: \(e.keyCode, privacy: .public) flags: \(e.modifierFlags.rawValue, privacy: .public)")
                 }
                 
                 // Local monitor fallback: works when our app is key and a text field has focus
@@ -78,7 +79,7 @@ class InputListener {
                     switch e.type {
                     case .keyDown:
                         if hasCommand && keyCode == UInt16(self.kVK_Tab) {
-                            if self.enableDiagnostics { print("🧩 Local monitor detected Cmd+Tab (fallback)") }
+                            if self.enableDiagnostics { AppLog.input.debug("🧩 Local monitor detected Cmd+Tab (fallback).") }
                             // Avoid double-trigger if HID tap already handled
                             if !self.receivedKeyboardEvent {
                                 DispatchQueue.main.async { [weak self] in
@@ -94,7 +95,7 @@ class InputListener {
                         if !isCmdNow {
                             let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
                             if let appState = appState {
-                                if self.enableDiagnostics { print("✅ Local monitor committing on Command release (fallback)") }
+                                if self.enableDiagnostics { AppLog.input.debug("✅ Local monitor committing on Command release (fallback).") }
                                 DispatchQueue.main.async {
                                     appState.commitSelection()
                                     self.stopCommandReleasePoller()
@@ -107,7 +108,7 @@ class InputListener {
                             if !hasCommand {
                                 let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
                                 if let appState = appState {
-                                    if self.enableDiagnostics { print("✅ Local monitor committing on Tab keyUp (fallback)") }
+                                    if self.enableDiagnostics { AppLog.input.debug("✅ Local monitor committing on Tab keyUp (fallback).") }
                                     DispatchQueue.main.async {
                                         appState.commitSelection()
                                         self.stopCommandReleasePoller()
@@ -148,10 +149,10 @@ class InputListener {
             if let _ = createdTap {
                 self.usingHIDTap = true
                 if self.enableDiagnostics {
-                    print(self.suppressionEnabled ? "🧲 Using HID-level event tap (suppression enabled)." : "👂 Using HID-level event tap (listen-only, no suppression).")
+                    AppLog.input.debug("\(self.suppressionEnabled ? "🧲 Using HID-level event tap (suppression enabled)." : "👂 Using HID-level event tap (listen-only, no suppression).")")
                 }
             } else {
-                print("ℹ️ HID-level tap failed. Falling back to Session-level tap.")
+                AppLog.input.log("ℹ️ HID-level tap failed. Falling back to Session-level tap.")
                 createdTap = CGEvent.tapCreate(
                     tap: .cgSessionEventTap,
                     place: .headInsertEventTap,
@@ -162,12 +163,12 @@ class InputListener {
                 )
                 self.usingHIDTap = false
                 if self.enableDiagnostics {
-                    print(self.suppressionEnabled ? "🧭 Using Session-level event tap (suppression enabled)." : "👂 Using Session-level event tap (listen-only, no suppression).")
+                    AppLog.input.debug("\(self.suppressionEnabled ? "🧭 Using Session-level event tap (suppression enabled)." : "👂 Using Session-level event tap (listen-only, no suppression).")")
                 }
             }
             
             guard let tap = createdTap else {
-                print("❌ FATAL: Could not create event tap. Check Accessibility and Input Monitoring permissions. If running under Xcode, add Xcode to Input Monitoring.")
+                AppLog.input.fault("❌ Could not create event tap. Check Accessibility and Input Monitoring permissions. If running under Xcode, add Xcode to Input Monitoring.")
                 return
             }
             
@@ -180,7 +181,7 @@ class InputListener {
             
             // 4. ENABLE
             CGEvent.tapEnable(tap: tap, enable: true)
-            print("✅ Input Listener Attached (Session Level). Waiting for events...")
+            AppLog.input.info("✅ Input Listener attached (Session Level). Waiting for events...")
         }
     }
     
@@ -222,7 +223,7 @@ class InputListener {
             let flags = CGEventSource.flagsState(.combinedSessionState)
             let commandDown = flags.contains(.maskCommand)
             if !commandDown {
-                if self.enableDiagnostics { print("🕵️‍♂️ Poller detected Command release -> committing selection") }
+                if self.enableDiagnostics { AppLog.input.debug("🕵️‍♂️ Poller detected Command release; committing selection.") }
                 DispatchQueue.main.async {
                     appState.commitSelection()
                 }
@@ -247,7 +248,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
 
     // 2. CHECK FOR TAP DEATH
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-        print("⚠️ WARNING: Event Tap disabled (Type: \(type.rawValue)). Re-enabling...")
+        AppLog.input.log("⚠️ Warning: Event Tap disabled (Type: \(type.rawValue, privacy: .public)). Re-enabling...")
         if let tap = listener.eventTap {
             CGEvent.tapEnable(tap: tap, enable: true)
         }
@@ -265,8 +266,8 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         // Check for Cmd+Tab (or Cmd+Shift+Tab) and suppress
         if cmdActive && keyCode == listener.kVK_Tab {
             if listener.enableDiagnostics {
-                print("🚀 DETECTED Cmd+Tab (suppressing, HID tap: \(listener.usingHIDTap))")
-                print("📣 Invoking appState.handleUserActivation from InputListener")
+                AppLog.input.debug("🚀 Detected Cmd+Tab (suppressing, HID tap: \(listener.usingHIDTap, privacy: .public)).")
+                AppLog.input.debug("📣 Invoking appState.handleUserActivation from InputListener.")
             }
             let direction: SelectionDirection = flags.contains(.maskShift) ? .previous : .next
             
@@ -274,13 +275,13 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
                 let appState = listener.appState ?? (NSApp.delegate as? AppDelegate)?.appState
                 if let appState = appState {
                     if listener.enableDiagnostics {
-                        print("🧩 InputListener will call handleUserActivation on AppState: \(Unmanaged.passUnretained(appState).toOpaque())")
+                        AppLog.input.debug("🧩 InputListener will call handleUserActivation on AppState: \(String(describing: Unmanaged.passUnretained(appState).toOpaque()), privacy: .public)")
                     }
                     appState.handleUserActivation(direction: direction)
                     // Start release poller to handle cases where flagsChanged/keyUp are suppressed
                     listener.startCommandReleasePoller()
                 } else {
-                    print("❓ No AppState available to handle activation.")
+                    AppLog.input.error("❓ No AppState available to handle activation.")
                 }
             }
             
@@ -288,7 +289,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
             return nil
         }
         
-        print("⌨️ Key Down: \(keyCode)")
+        AppLog.input.debug("⌨️ Key Down: \(keyCode, privacy: .public)")
     }
     
     if type == .keyUp {
@@ -298,14 +299,14 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
 
         // Diagnostic logging
         if listener.enableDiagnostics {
-            print("⬆️ keyUp: keyCode=\(keyCode) hasCommand=\(hasCommand) isCmdPressed=\(listener.isCommandPressed)")
+            AppLog.input.debug("⬆️ keyUp: keyCode=\(keyCode, privacy: .public) hasCommand=\(hasCommand, privacy: .public) isCmdPressed=\(listener.isCommandPressed, privacy: .public)")
         }
 
         if keyCode == listener.kVK_Tab {
             // If Command is no longer held, but our flagsChanged didn't fire (e.g., due to secure input or focus quirks),
             // commit the selection as a fallback when Tab is released.
             if !hasCommand {
-                if listener.enableDiagnostics { print("✅ Fallback commit on Tab keyUp (Command not held)") }
+                if listener.enableDiagnostics { AppLog.input.debug("✅ Fallback commit on Tab keyUp (Command not held).") }
                 let appState = listener.appState ?? (NSApp.delegate as? AppDelegate)?.appState
                 if let appState = appState {
                     DispatchQueue.main.async {
@@ -316,7 +317,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
                 // Ensure we clear our internal state
                 listener.isCommandPressed = false
             } else {
-                if listener.enableDiagnostics { print("🛑 Suppressing Cmd+Tab keyUp while Command still held") }
+                if listener.enableDiagnostics { AppLog.input.debug("🛑 Suppressing Cmd+Tab keyUp while Command still held.") }
             }
             // Always suppress Tab keyUp to avoid system App Switcher glitches
             return nil
@@ -329,14 +330,14 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         let isCmdNow = (flags.rawValue & CGEventFlags.maskCommand.rawValue) != 0
         
         if listener.enableDiagnostics {
-            print("🎛️ flagsChanged: isCmdNow=\(isCmdNow) was=\(listener.isCommandPressed) flags=\(flags.rawValue)")
+            AppLog.input.debug("🎛️ flagsChanged: isCmdNow=\(isCmdNow, privacy: .public) was=\(listener.isCommandPressed, privacy: .public) flags=\(flags.rawValue, privacy: .public)")
         }
         
         // Log current switcher visibility
         if let appDelegate = NSApp.delegate as? AppDelegate {
             let visible = appDelegate.appState.isSwitcherVisible
             if listener.enableDiagnostics {
-                print("👁️ isSwitcherVisible at flagsChanged: \(visible)")
+                AppLog.input.debug("👁️ isSwitcherVisible at flagsChanged: \(visible, privacy: .public)")
             }
         }
         
@@ -345,7 +346,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         if !isCmdNow {
             if let appState = listener.appState {
                 if listener.enableDiagnostics {
-                    print("✅ Committing selection on Command release (flagsChanged via listener.appState)")
+                    AppLog.input.debug("✅ Committing selection on Command release (flagsChanged via listener.appState).")
                 }
                 DispatchQueue.main.async {
                     appState.commitSelection()
@@ -354,14 +355,14 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
             } else if let appDelegate = NSApp.delegate as? AppDelegate {
                 let appState = appDelegate.appState
                 if listener.enableDiagnostics {
-                    print("✅ Committing selection on Command release (flagsChanged via AppDelegate)")
+                    AppLog.input.debug("✅ Committing selection on Command release (flagsChanged via AppDelegate).")
                 }
                 DispatchQueue.main.async {
                     appState.commitSelection()
                 }
                 listener.stopCommandReleasePoller()
             } else {
-                if listener.enableDiagnostics { print("❓ No AppState available on Command release") }
+                if listener.enableDiagnostics { AppLog.input.debug("❓ No AppState available on Command release.") }
             }
         }
         listener.isCommandPressed = isCmdNow
@@ -369,4 +370,3 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
     
     return Unmanaged.passUnretained(event)
 }
-

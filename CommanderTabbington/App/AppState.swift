@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import Cocoa
 import CoreGraphics
+import OSLog
 
 class AppState: ObservableObject {
     
@@ -46,16 +47,16 @@ class AppState: ObservableObject {
     /// If the switcher is hidden, it opens it and captures the current state.
     /// If open, it cycles to the next app.
     func handleUserActivation(direction: SelectionDirection = .next) {
-        if !isSwitcherVisible {
+        if !self.isSwitcherVisible {
             // If no pending open, capture current state and schedule UI appearance after a small delay
-            if pendingOpenWorkItem == nil {
+            if self.pendingOpenWorkItem == nil {
                 refreshCurrentList()
-                if visibleApps.isEmpty && visibleWindows.isEmpty {
-                    print("⚠️ No apps or windows available to show in switcher.")
+                if self.visibleApps.isEmpty && self.visibleWindows.isEmpty {
+                    AppLog.appState.log("⚠️ No apps or windows available to show in switcher.")
                 }
                 // Preselect the second entry (index 1) by default
-                let count: Int = (mode == .perApp) ? visibleApps.count : visibleWindows.count
-                selectedIndex = (count > 1) ? 1 : 0
+                let count: Int = (self.mode == .perApp) ? self.visibleApps.count : self.visibleWindows.count
+                self.selectedIndex = (count > 1) ? 1 : 0
 
                 switch self.mode {
                 case .perApp:
@@ -83,10 +84,10 @@ class AppState: ObservableObject {
                     guard self.pendingOpenWorkItem === workItem else { return }
                     self.isSwitcherVisible = true
                     self.pendingOpenWorkItem = nil
-                    print("🔎 Switcher opened (delayed). apps=\(self.visibleApps.count) windows=\(self.visibleWindows.count) selectedIndex=\(self.selectedIndex)")
+                    AppLog.appState.info("🔎 Switcher opened (delayed). apps=\(self.visibleApps.count, privacy: .public) windows=\(self.visibleWindows.count, privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public)")
                 }
                 if let wi = workItem {
-                    pendingOpenWorkItem = wi
+                    self.pendingOpenWorkItem = wi
                     DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(max(0, delayMS)), execute: wi)
                 }
             } else {
@@ -101,28 +102,28 @@ class AppState: ObservableObject {
     
     /// Moves the selection index, wrapping around the array bounds.
     func cycleSelection(direction: SelectionDirection) {
-        guard !visibleApps.isEmpty || !visibleWindows.isEmpty else { return }
-        let count: Int = (mode == .perApp) ? visibleApps.count : visibleWindows.count
+        guard !self.visibleApps.isEmpty || !self.visibleWindows.isEmpty else { return }
+        let count: Int = (self.mode == .perApp) ? self.visibleApps.count : self.visibleWindows.count
         guard count > 0 else { return }
         
         switch direction {
         case .next:
-            selectedIndex = (selectedIndex + 1) % count
+            self.selectedIndex = (self.selectedIndex + 1) % count
         case .previous:
-            selectedIndex = (selectedIndex - 1 + count) % count
+            self.selectedIndex = (self.selectedIndex - 1 + count) % count
         }
         
-        switch mode {
+        switch self.mode {
         case .perApp:
-            if visibleApps.indices.contains(selectedIndex) {
-                selectedAppID = visibleApps[selectedIndex].id
+            if self.visibleApps.indices.contains(self.selectedIndex) {
+                self.selectedAppID = self.visibleApps[self.selectedIndex].id
             }
-            selectedWindowID = nil
+            self.selectedWindowID = nil
         case .perWindow:
-            if visibleWindows.indices.contains(selectedIndex) {
-                selectedWindowID = visibleWindows[selectedIndex].id
+            if self.visibleWindows.indices.contains(self.selectedIndex) {
+                self.selectedWindowID = self.visibleWindows[self.selectedIndex].id
             }
-            selectedAppID = nil
+            self.selectedAppID = nil
         }
     }
     
@@ -130,67 +131,67 @@ class AppState: ObservableObject {
     /// Commits the selection and hides the UI.
     func commitSelection() {
         // Diagnostics: entry log
-        print("commitSelection invoked. mode=\(mode) selectedIndex=\(selectedIndex) isVisible=\(isSwitcherVisible) apps=\(visibleApps.count) windows=\(visibleWindows.count)")
+        AppLog.appState.info("🧭 commitSelection invoked. mode=\(String(describing: self.mode), privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public) isVisible=\(self.isSwitcherVisible, privacy: .public) apps=\(self.visibleApps.count, privacy: .public) windows=\(self.visibleWindows.count, privacy: .public)")
         
         // Allow commit even if the UI hasn't appeared yet, as long as an open is pending
-        let hadPendingOpen = (pendingOpenWorkItem != nil)
+        let hadPendingOpen = (self.pendingOpenWorkItem != nil)
         if hadPendingOpen {
-            pendingOpenWorkItem?.cancel()
-            pendingOpenWorkItem = nil
+            self.pendingOpenWorkItem?.cancel()
+            self.pendingOpenWorkItem = nil
         }
         
-        guard isSwitcherVisible || hadPendingOpen else {
-            print("⚠️ commitSelection ignored: switcher not visible and no pending open")
+        guard self.isSwitcherVisible || hadPendingOpen else {
+            AppLog.appState.log("⚠️ commitSelection ignored: switcher not visible and no pending open")
             return
         }
         
-        if isSwitcherVisible { isSwitcherVisible = false }
-        print("🫥 Hiding switcher overlay before activation")
+        if self.isSwitcherVisible { self.isSwitcherVisible = false }
+        AppLog.appState.debug("🫥 Hiding switcher overlay before activation")
         
-        switch mode {
+        switch self.mode {
         case .perApp:
-            guard visibleApps.indices.contains(selectedIndex) else {
-                print("❌ Selection index out of range for visibleApps: index=\(selectedIndex) count=\(visibleApps.count)")
+            guard self.visibleApps.indices.contains(self.selectedIndex) else {
+                AppLog.appState.error("❌ Selection index out of range for visibleApps: index=\(self.selectedIndex, privacy: .public) count=\(self.visibleApps.count, privacy: .public)")
                 return
             }
-            let selectedApp = visibleApps[selectedIndex]
-            print("Switching to app: \(selectedApp.appName) (PID: \(selectedApp.ownerPID))")
+            let selectedApp = self.visibleApps[self.selectedIndex]
+            AppLog.appState.info("🚀 Switching to app: \(selectedApp.appName, privacy: .public) (PID: \(selectedApp.ownerPID, privacy: .public))")
 
             // Prefer the stored NSRunningApplication, but fall back to resolving by PID if needed
             let targetApp = selectedApp.owningApplication ?? NSRunningApplication(processIdentifier: selectedApp.ownerPID)
 
             guard let app = targetApp else {
-                print("❓ No NSRunningApplication for selected app; cannot activate directly")
+                AppLog.appState.error("❓ No NSRunningApplication for selected app; cannot activate directly")
                 return
             }
 
             // Try high-level activation first
             let activated = app.activate(options: [.activateIgnoringOtherApps])
             if activated {
-                print("✅ App activation requested successfully")
+                AppLog.appState.info("✅ App activation requested successfully")
             } else {
-                print("⚠️ App activation returned false; attempting AX-based bring-to-front fallback")
+                AppLog.appState.log("⚠️ App activation returned false; attempting AX-based bring-to-front fallback")
             }
 
             // Use AccessibilityService to ensure the app is unhidden and all windows are raised/focused.
             AccessibilityService.shared.bringAllWindowsToFront(for: app)
         case .perWindow:
-            guard visibleWindows.indices.contains(selectedIndex) else {
-                print("❌ Selection index out of range for visibleWindows: index=\(selectedIndex) count=\(visibleWindows.count)")
+            guard self.visibleWindows.indices.contains(self.selectedIndex) else {
+                AppLog.appState.error("❌ Selection index out of range for visibleWindows: index=\(self.selectedIndex, privacy: .public) count=\(self.visibleWindows.count, privacy: .public)")
                 return
             }
-            let selectedWindow = visibleWindows[selectedIndex]
-            print("Switching to window: \(selectedWindow.title) (ID: \(selectedWindow.windowID)) of app \(selectedWindow.appName) (PID: \(selectedWindow.ownerPID))")
-            print("➡️ Bumping window recency and requesting focus")
+            let selectedWindow = self.visibleWindows[self.selectedIndex]
+            AppLog.appState.info("🚀 Switching to window: \(selectedWindow.title, privacy: .public) (ID: \(selectedWindow.windowID, privacy: .public)) of app \(selectedWindow.appName, privacy: .public) (PID: \(selectedWindow.ownerPID, privacy: .public))")
+            AppLog.appState.debug("➡️ Bumping window recency and requesting focus")
             WindowRecents.shared.bump(windowID: selectedWindow.windowID)
             AccessibilityService.shared.focus(window: selectedWindow)
-            print("📣 Focus request sent to AccessibilityService")
+            AppLog.appState.debug("📣 Focus request sent to AccessibilityService")
         }
     }
     
     func cancelSelection() {
-        isSwitcherVisible = false
-        if let w = pendingOpenWorkItem { w.cancel(); pendingOpenWorkItem = nil }
+        self.isSwitcherVisible = false
+        if let w = self.pendingOpenWorkItem { w.cancel(); self.pendingOpenWorkItem = nil }
         // Optional: Return focus to previousApp if needed
     }
     
@@ -203,7 +204,7 @@ class AppState: ObservableObject {
     // MARK: - Private Helpers
     
     private func refreshCurrentList() {
-        switch mode {
+        switch self.mode {
         case .perApp:
             let prevID = self.selectedAppID
             var apps = WindowManager.shared.getOpenApps()
@@ -268,4 +269,3 @@ enum SelectionDirection {
     case next      // Tab
     case previous  // Shift + Tab
 }
-

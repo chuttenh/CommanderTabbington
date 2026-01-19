@@ -1,4 +1,5 @@
 import SwiftUI
+import OSLog
 
 struct PreferencesView: View {
     @EnvironmentObject var appState: AppState
@@ -24,7 +25,7 @@ struct PreferencesView: View {
                 Toggle("Show Desktop Windows", isOn: $showDesktopWindows)
                     .onChange(of: showDesktopWindows) { _ in
                         // In the future, you'd pass this preference to WindowManager
-                        print("Preference changed: Show Desktop = \(showDesktopWindows)")
+                    AppLog.preferences.info("Preference changed: Show Desktop = \(showDesktopWindows, privacy: .public)")
                     }
                 
                 Picker("Switcher Mode", selection: Binding(get: {
@@ -58,7 +59,7 @@ struct PreferencesView: View {
                 
                 Toggle("Show Notification Badges", isOn: $showNotificationBadges)
                     .onChange(of: showNotificationBadges) { _ in
-                        print("Preference changed: Show Badges = \(showNotificationBadges)")
+                    AppLog.preferences.info("Preference changed: Show Badges = \(showNotificationBadges, privacy: .public)")
                     }
                 
                 Picker("Hidden apps", selection: $hiddenPlacementRaw) {
@@ -67,7 +68,9 @@ struct PreferencesView: View {
                     Text("Exclude").tag(PlacementPreference.exclude.rawValue)
                 }
                 .pickerStyle(.segmented)
-                .onChange(of: hiddenPlacementRaw) { _ in print("Preference changed: HiddenAppsPlacement = \(hiddenPlacementRaw)") }
+                .onChange(of: hiddenPlacementRaw) { _ in
+                    AppLog.preferences.info("Preference changed: HiddenAppsPlacement = \(hiddenPlacementRaw, privacy: .public)")
+                }
 
                 Picker("Minimized windows", selection: $minimizedPlacementRaw) {
                     Text("Normal").tag(PlacementPreference.normal.rawValue)
@@ -75,7 +78,9 @@ struct PreferencesView: View {
                     Text("Exclude").tag(PlacementPreference.exclude.rawValue)
                 }
                 .pickerStyle(.segmented)
-                .onChange(of: minimizedPlacementRaw) { _ in print("Preference changed: MinimizedAppsPlacement = \(minimizedPlacementRaw)") }
+                .onChange(of: minimizedPlacementRaw) { _ in
+                    AppLog.preferences.info("Preference changed: MinimizedAppsPlacement = \(minimizedPlacementRaw, privacy: .public)")
+                }
             }
             
             Section(header: Text("Layout")) {
@@ -108,7 +113,7 @@ struct PreferencesView: View {
                 
                 Button("Check Permissions") {
                     let trusted = AXIsProcessTrusted()
-                    print("Accessibility Trusted: \(trusted)")
+                    AppLog.preferences.info("Accessibility Trusted: \(trusted, privacy: .public)")
                 }
             }
         }
@@ -116,4 +121,3 @@ struct PreferencesView: View {
         .frame(width: 350, height: 260)
     }
 }
-
