@@ -45,7 +45,7 @@ To enable it:
 2. Add/enable **Commander Tabbington**
 3. Quit and relaunch the app (if it’s already running)
 
-If permission is not granted, window switching will not work.
+On some systems, Input Monitoring may still be required for global shortcut capture; if event taps fail, the app will prompt you to grant it.
 
 ## Build and Run
 - Open `CommanderTabbington.xcodeproj` in Xcode.
@@ -67,4 +67,3 @@ Preferred: GitHub issues. Backup: `chuttenh@gmail.com`.
 
 ## License
 MIT. See `LICENSE`.
-

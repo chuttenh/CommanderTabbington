@@ -1,9 +1,10 @@
 import Cocoa
 import SwiftUI
 import Combine
+import CoreGraphics
 import OSLog
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     
     // 1. The Central State
     // This object will drive the UI. When we update this (e.g., select next window),
@@ -22,21 +23,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var preferencesWindow: NSWindow?
     var distributedObserver: NSObjectProtocol?
     var defaultsObserver: NSObjectProtocol?
+    var appActivationObserver: NSObjectProtocol?
     
     var workspaceObservers: [NSObjectProtocol] = []
+    private var lastMissingPermissions: [PermissionType] = []
+    private var hasPresentedPermissionsAlert: Bool = false
+    private var permissionsAlertTimer: DispatchSourceTimer?
+    private var permissionsAccessibilityStatusLabel: NSTextField?
+    private var permissionsAccessibilityActionButton: NSButton?
+    private var permissionsWindow: NSWindow?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let skipSingleInstanceCheck = UserDefaults.standard.bool(forKey: "SkipSingleInstanceCheck")
+        if skipSingleInstanceCheck {
+            UserDefaults.standard.removeObject(forKey: "SkipSingleInstanceCheck")
+        }
         // Strict single-instance enforcement: if another instance is running, activate it and ask it to open Preferences, then quit.
         if let bundleID = Bundle.main.bundleIdentifier {
-            let instances = NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier == bundleID }
-            let currentPID = ProcessInfo.processInfo.processIdentifier
-            if instances.count > 1 {
-                if let other = instances.first(where: { $0.processIdentifier != currentPID }) ?? instances.first {
-                    other.activate(options: .activateIgnoringOtherApps)
+            if !skipSingleInstanceCheck {
+                let instances = NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier == bundleID }
+                let currentPID = ProcessInfo.processInfo.processIdentifier
+                if instances.count > 1 {
+                    if let other = instances.first(where: { $0.processIdentifier != currentPID }) ?? instances.first {
+                        other.activate(options: .activateIgnoringOtherApps)
+                    }
+                    DistributedNotificationCenter.default().post(name: Notification.Name("CommanderTabbingtonOpenPreferences"), object: bundleID)
+                    NSApp.terminate(nil)
+                    return
                 }
-                DistributedNotificationCenter.default().post(name: Notification.Name("CommanderTabbingtonOpenPreferences"), object: bundleID)
-                NSApp.terminate(nil)
-                return
             }
         }
         
@@ -47,9 +61,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "MinimizedAppsPlacement": PlacementPreference.normal.rawValue
         ])
         
-        // A. Check for Accessibility Permissions immediately on launch.
-        // Without this, the app cannot see or control other windows.
-        checkAccessibilityPermissions()
+        // A. Check for Accessibility permissions immediately on launch.
+        // Without these, the app cannot see or control other windows.
+        checkRequiredPermissions()
         
         // B. Setup the Menu Bar Icon (Tray Icon)
         setupStatusBar()
@@ -114,6 +128,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.updateOverlaySize()
         }
+
+        appActivationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self = self, self.permissionsWindow != nil else { return }
+            self.refreshPermissionsAlertUI(with: self.missingPermissions())
+        }
         
         // Observe workspace app visibility and lifecycle to keep list in sync
         let center = NSWorkspace.shared.notificationCenter
@@ -154,6 +173,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         FocusMonitor.shared.stop()
         if let obs = distributedObserver {
             DistributedNotificationCenter.default().removeObserver(obs)
+        }
+        if let obs = appActivationObserver {
+            NotificationCenter.default.removeObserver(obs)
         }
         for token in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(token) }
         workspaceObservers.removeAll()
@@ -305,22 +327,246 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
     }
     
-    private func checkAccessibilityPermissions() {
-        // AXIsProcessTrusted returns true if the user has granted permission.
-        let trusted = AXIsProcessTrusted()
-        
-        if !trusted {
-            // In a real app, we would show an alert dialog here prompting the user
-            // and providing a button to open System Settings.
-            // For now, we just print a warning.
+    private enum PermissionType: String {
+        case accessibility = "Accessibility"
+    }
+
+    private func checkRequiredPermissions() {
+        let missing = missingPermissions()
+        if missing.isEmpty {
+            lastMissingPermissions = []
+            hasPresentedPermissionsAlert = false
+            closePermissionsWindowIfNeeded()
+            return
+        }
+
+        if hasPresentedPermissionsAlert && missing == lastMissingPermissions {
+            return
+        }
+        lastMissingPermissions = missing
+
+        logMissingPermissions(missing)
+        presentPermissionsWindow(missing: missing)
+        hasPresentedPermissionsAlert = true
+    }
+
+    private func missingPermissions() -> [PermissionType] {
+        var missing: [PermissionType] = []
+        if !isAccessibilityTrusted() {
+            missing.append(.accessibility)
+        }
+        return missing
+    }
+
+    private func isAccessibilityTrusted() -> Bool {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false]
+        return AXIsProcessTrusted() || AXIsProcessTrustedWithOptions(options as CFDictionary)
+    }
+
+    private func logMissingPermissions(_ missing: [PermissionType]) {
+        if missing.contains(.accessibility) {
             AppLog.app.log("⚠️ Warning: Accessibility permissions not granted. Window switching will not work.")
-            
-            // This options dictionary helps deep-link to the privacy settings
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-            AXIsProcessTrustedWithOptions(options as CFDictionary)
         }
     }
-    
+
+    private func presentPermissionsWindow(missing: [PermissionType]) {
+        NSApp.activate(ignoringOtherApps: true)
+        let window = permissionsWindow ?? buildPermissionsWindow()
+        permissionsWindow = window
+        updatePermissionsWindow()
+        window.makeKeyAndOrderFront(nil)
+        startPermissionsRefreshLoop()
+    }
+
+    private func buildPermissionsWindow() -> NSWindow {
+        let content = NSStackView()
+        content.orientation = .vertical
+        content.alignment = .leading
+        content.spacing = 12
+        content.translatesAutoresizingMaskIntoConstraints = false
+
+        let iconView = NSImageView(image: NSApp.applicationIconImage)
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        NSLayoutConstraint.activate([
+            iconView.widthAnchor.constraint(equalToConstant: 48),
+            iconView.heightAnchor.constraint(equalToConstant: 48)
+        ])
+
+        let title = NSTextField(labelWithString: "Permissions Required")
+        title.font = NSFont.boldSystemFont(ofSize: 15)
+
+        let body = NSTextField(labelWithString: "Commander Tabbington needs Accessibility permission to function properly.")
+        body.lineBreakMode = .byWordWrapping
+        body.maximumNumberOfLines = 0
+
+        let headerText = NSStackView()
+        headerText.orientation = .vertical
+        headerText.alignment = .leading
+        headerText.spacing = 4
+        headerText.addArrangedSubview(title)
+        headerText.addArrangedSubview(body)
+
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .top
+        header.spacing = 12
+        header.addArrangedSubview(iconView)
+        header.addArrangedSubview(headerText)
+
+        let accessibilitySection = permissionSection(
+            title: "Accessibility",
+            isGranted: false,
+            actionTitle: "Open Accessibility Settings",
+            action: #selector(openAccessibilitySettings),
+            permission: .accessibility
+        )
+
+
+        let buttons = NSStackView()
+        buttons.orientation = .horizontal
+        buttons.alignment = .centerY
+        buttons.distribution = .gravityAreas
+
+        let quitButton = NSButton(title: "Quit", target: self, action: #selector(permissionsQuitPressed))
+
+        buttons.addArrangedSubview(NSView())
+        buttons.addArrangedSubview(quitButton)
+
+        content.addArrangedSubview(header)
+        content.addArrangedSubview(accessibilitySection)
+        content.addArrangedSubview(buttons)
+
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            content.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            content.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
+            content.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -20)
+        ])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Permissions Required"
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.contentView = container
+        window.center()
+        return window
+    }
+
+    private func permissionSection(title: String, isGranted: Bool, actionTitle: String, action: Selector, permission: PermissionType) -> NSView {
+        let container = NSStackView()
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = 4
+
+        let header = NSTextField(labelWithString: title)
+        header.font = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
+
+        let statusText = isGranted ? "Status: Granted" : "Status: Not granted"
+        let status = NSTextField(labelWithString: statusText)
+
+        let button = NSButton(title: actionTitle, target: self, action: action)
+        button.isEnabled = !isGranted
+
+        container.addArrangedSubview(header)
+        container.addArrangedSubview(status)
+        container.addArrangedSubview(button)
+
+        permissionsAccessibilityStatusLabel = status
+        permissionsAccessibilityActionButton = button
+
+        return container
+    }
+
+    private func updatePermissionsWindow() {
+        let isAccessibilityGranted = isAccessibilityTrusted()
+        permissionsAccessibilityStatusLabel?.stringValue = isAccessibilityGranted ? "Status: Granted" : "Status: Not granted"
+        permissionsAccessibilityActionButton?.isEnabled = !isAccessibilityGranted
+        if isAccessibilityGranted {
+            restartApplication()
+        }
+    }
+
+    @objc private func permissionsQuitPressed() {
+        NSApp.terminate(nil)
+    }
+
+    @objc private func openAccessibilitySettings() {
+        openPrivacyPane(for: .accessibility)
+    }
+
+    private func openPrivacyPane(for permission: PermissionType) {
+        let pane: String = "Privacy_Accessibility"
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func startPermissionsRefreshLoop() {
+        stopPermissionsRefreshLoop()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .milliseconds(200), repeating: .milliseconds(500))
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            self.refreshPermissionsAlertUI(with: self.missingPermissions())
+        }
+        permissionsAlertTimer = timer
+        timer.resume()
+    }
+
+    private func stopPermissionsRefreshLoop() {
+        permissionsAlertTimer?.cancel()
+        permissionsAlertTimer = nil
+    }
+
+    private func refreshPermissionsAlertUI(with missing: [PermissionType]) {
+        updatePermissionsWindow()
+    }
+
+    private func closePermissionsWindowIfNeeded() {
+        permissionsWindow?.orderOut(nil)
+        permissionsWindow = nil
+        permissionsAccessibilityStatusLabel = nil
+        permissionsAccessibilityActionButton = nil
+        stopPermissionsRefreshLoop()
+    }
+
+    private func restartApplication() {
+        closePermissionsWindowIfNeeded()
+        UserDefaults.standard.set(true, forKey: "SkipSingleInstanceCheck")
+        UserDefaults.standard.synchronize()
+        let appURL = URL(fileURLWithPath: Bundle.main.bundlePath)
+        launchViaOpen(appURL)
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(200)) {
+            NSApp.terminate(nil)
+        }
+    }
+
+    private func launchViaOpen(_ appURL: URL) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-n", appURL.path]
+        do {
+            try process.run()
+        } catch {
+            AppLog.app.error("❌ Failed to relaunch via /usr/bin/open: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window == permissionsWindow {
+            closePermissionsWindowIfNeeded()
+        }
+    }
+
     // MARK: - Actions
     
     @objc func openPreferences() {

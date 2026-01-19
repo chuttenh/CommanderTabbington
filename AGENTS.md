@@ -47,6 +47,7 @@ Non-goals (for now):
 - `WindowRecents.swift`: Tracks MRU order of windows (CGWindowID), seeds from current z-order, and provides sort helper (`sortWindowsByRecency`).
 - `AccessibilityService.swift`: Bridges to the Accessibility API to focus a specific window or bring an app’s windows to the front reliably.
 - `SwitcherView.swift`: SwiftUI overlay; glass background; grid layout; selection scroll-to-center.
+- `SwitcherLayout.swift`: Shared layout constants used by `SwitcherView` and overlay sizing.
 - `AppCardView.swift`: Renders an app icon, name, optional subtitle (window title), and notification badge.
 - `PreferencesView.swift`: UI for the main preferences (mode, layout, inclusion toggles, badges, and overlay open delay).
 
@@ -82,14 +83,19 @@ Referenced components (expected in the project even if not shown above):
 - Models (`SystemApp`, `SystemWindow`) are value types, `Identifiable` and `Hashable` by a single stable identifier.
 - Single source of truth: `AppState` publishes everything the overlay needs; UI binds to it.
 - Threading: UI updates occur on the main thread; MRU lists maintain their own serial queues.
-- Logging: Use concise `print` statements; prefer consistent phrasing and include relevant IDs/names. Emoji markers are acceptable for quick scanning.
+- Logging: Use `OSLog`/`Logger` via `AppLog`; prefer consistent phrasing and include relevant IDs/names. Emoji markers are acceptable for quick scanning.
 - Avoid unnecessary global state; prefer file-private helpers and singletons only where justified (e.g., `WindowManager.shared`).
 
 
 ## Build, run, and permissions
-- macOS target: modern macOS (AppKit + SwiftUI). Accessibility permission is required to enumerate/focus other apps/windows. `AppDelegate.checkAccessibilityPermissions()` prompts on first run.
+- macOS target: modern macOS (AppKit + SwiftUI). Accessibility permission is required to enumerate/focus other apps/windows; a custom permissions window guides the user on startup.
 - Menu bar item: provides Preferences and Quit.
 - Single-instance: on startup, a second instance signals the running one to open Preferences and exits.
+
+### Permissions UX
+- The app uses a custom permissions window (not the system prompt) to guide users to grant Accessibility permission.
+- The window shows status, opens System Settings to the Accessibility pane, and auto-relaunches once permission is granted.
+- Input Monitoring is not treated as a hard requirement; if global event taps fail, the app presents a separate Input Monitoring alert from `InputListener`.
 
 
 ## Common tasks and checklists
@@ -148,6 +154,7 @@ Response style in Xcode:
 - “Launch at Login” is present in UI but disabled.
 - `showDesktopWindows` is a placeholder and not fully wired into filtering.
 - Badge counts depend on `DockBadgeService` which must be present and performant; if unavailable, badge rendering should be disabled via preference.
+- Accessibility permission changes require relaunch; the app auto-restarts when granted.
 
 
 ## Glossary
@@ -160,6 +167,7 @@ Response style in Xcode:
 ## Quick references (code anchors)
 - Overlay creation: `AppDelegate.setupOverlayWindow()`
 - Overlay sizing: `AppDelegate.updateOverlaySize()`
+- Permissions window: `AppDelegate.presentPermissionsWindow`, `AppDelegate.restartApplication`
 - State transitions: `AppState.handleUserActivation`, `AppState.commitSelection`, `AppState.cancelSelection`
 - Enumeration: `WindowManager.getOpenWindows()`, `WindowManager.getOpenApps()`
 - Filtering: `WindowManager.shouldInclude(windowInfo:)`
@@ -171,4 +179,3 @@ Response style in Xcode:
 ## Contributing notes
 - Keep this file updated when changing high-level behavior, preferences, or architectural choices.
 - Prefer small, reviewable PRs with a clear summary of user-visible changes and any permission/behavior impacts.
-

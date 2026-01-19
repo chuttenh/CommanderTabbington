@@ -34,6 +34,7 @@ class InputListener {
     private var globalKeyMonitor: Any?
     private var secureInputTimer: Timer?
     private var postStartDiagnosticTimer: Timer?
+    private var hasShownInputMonitoringAlert: Bool = false
     
     private init() {}
 
@@ -65,6 +66,7 @@ class InputListener {
             stopCommandReleasePoller()
         }
     }
+
     
     func start() {
         AppLog.input.info("🎛️ Attempting to start Input Listener (Session Tap).")
@@ -189,6 +191,9 @@ class InputListener {
             
             guard let tap = createdTap else {
                 AppLog.input.fault("❌ Could not create event tap. Check Accessibility and Input Monitoring permissions. If running under Xcode, add Xcode to Input Monitoring.")
+                if AXIsProcessTrusted() && !CGPreflightListenEventAccess() {
+                    self.presentInputMonitoringAlertIfNeeded()
+                }
                 return
             }
             
@@ -202,6 +207,26 @@ class InputListener {
             // 4. ENABLE
             CGEvent.tapEnable(tap: tap, enable: true)
             AppLog.input.info("✅ Input Listener attached (Session Level). Waiting for events...")
+        }
+    }
+
+    private func presentInputMonitoringAlertIfNeeded() {
+        guard !hasShownInputMonitoringAlert else { return }
+        hasShownInputMonitoringAlert = true
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Input Monitoring Permission Needed"
+            alert.informativeText = "Commander Tabbington could not create a global keyboard event tap. Grant Input Monitoring permission in System Settings to enable global shortcuts, then relaunch the app."
+            alert.addButton(withTitle: "Open Input Monitoring Settings")
+            alert.addButton(withTitle: "Quit")
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
+                    NSWorkspace.shared.open(url)
+                }
+            } else {
+                NSApp.terminate(nil)
+            }
         }
     }
     
@@ -270,7 +295,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         }
         return Unmanaged.passUnretained(event)
     }
-    
+
     if type == .keyDown {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         listener.noteKeyboardEventReceived()
