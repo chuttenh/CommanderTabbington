@@ -58,22 +58,7 @@ class AppState: ObservableObject {
                 let count: Int = (self.mode == .perApp) ? self.visibleApps.count : self.visibleWindows.count
                 self.selectedIndex = (count > 1) ? 1 : 0
 
-                switch self.mode {
-                case .perApp:
-                    if self.visibleApps.indices.contains(self.selectedIndex) {
-                        self.selectedAppID = self.visibleApps[self.selectedIndex].id
-                    } else {
-                        self.selectedAppID = nil
-                    }
-                    self.selectedWindowID = nil
-                case .perWindow:
-                    if self.visibleWindows.indices.contains(self.selectedIndex) {
-                        self.selectedWindowID = self.visibleWindows[self.selectedIndex].id
-                    } else {
-                        self.selectedWindowID = nil
-                    }
-                    self.selectedAppID = nil
-                }
+                applySelectionForCurrentMode()
 
                 // Schedule showing the overlay after the configured delay
                 let delayMS = UserDefaults.standard.object(forKey: "switcherOpenDelayMS") as? Int ?? 100
@@ -113,18 +98,7 @@ class AppState: ObservableObject {
             self.selectedIndex = (self.selectedIndex - 1 + count) % count
         }
         
-        switch self.mode {
-        case .perApp:
-            if self.visibleApps.indices.contains(self.selectedIndex) {
-                self.selectedAppID = self.visibleApps[self.selectedIndex].id
-            }
-            self.selectedWindowID = nil
-        case .perWindow:
-            if self.visibleWindows.indices.contains(self.selectedIndex) {
-                self.selectedWindowID = self.visibleWindows[self.selectedIndex].id
-            }
-            self.selectedAppID = nil
-        }
+        applySelectionForCurrentMode()
     }
     
     /// Called when the user releases the modifier key (Cmd).
@@ -150,42 +124,9 @@ class AppState: ObservableObject {
         
         switch self.mode {
         case .perApp:
-            guard self.visibleApps.indices.contains(self.selectedIndex) else {
-                AppLog.appState.error("❌ Selection index out of range for visibleApps: index=\(self.selectedIndex, privacy: .public) count=\(self.visibleApps.count, privacy: .public)")
-                return
-            }
-            let selectedApp = self.visibleApps[self.selectedIndex]
-            AppLog.appState.info("🚀 Switching to app: \(selectedApp.appName, privacy: .public) (PID: \(selectedApp.ownerPID, privacy: .public))")
-
-            // Prefer the stored NSRunningApplication, but fall back to resolving by PID if needed
-            let targetApp = selectedApp.owningApplication ?? NSRunningApplication(processIdentifier: selectedApp.ownerPID)
-
-            guard let app = targetApp else {
-                AppLog.appState.error("❓ No NSRunningApplication for selected app; cannot activate directly")
-                return
-            }
-
-            // Try high-level activation first
-            let activated = app.activate(options: [.activateIgnoringOtherApps])
-            if activated {
-                AppLog.appState.info("✅ App activation requested successfully")
-            } else {
-                AppLog.appState.log("⚠️ App activation returned false; attempting AX-based bring-to-front fallback")
-            }
-
-            // Use AccessibilityService to ensure the app is unhidden and all windows are raised/focused.
-            AccessibilityService.shared.bringAllWindowsToFront(for: app)
+            commitAppSelection()
         case .perWindow:
-            guard self.visibleWindows.indices.contains(self.selectedIndex) else {
-                AppLog.appState.error("❌ Selection index out of range for visibleWindows: index=\(self.selectedIndex, privacy: .public) count=\(self.visibleWindows.count, privacy: .public)")
-                return
-            }
-            let selectedWindow = self.visibleWindows[self.selectedIndex]
-            AppLog.appState.info("🚀 Switching to window: \(selectedWindow.title, privacy: .public) (ID: \(selectedWindow.windowID, privacy: .public)) of app \(selectedWindow.appName, privacy: .public) (PID: \(selectedWindow.ownerPID, privacy: .public))")
-            AppLog.appState.debug("➡️ Bumping window recency and requesting focus")
-            WindowRecents.shared.bump(windowID: selectedWindow.windowID)
-            AccessibilityService.shared.focus(window: selectedWindow)
-            AppLog.appState.debug("📣 Focus request sent to AccessibilityService")
+            commitWindowSelection()
         }
     }
     
@@ -261,6 +202,66 @@ class AppState: ObservableObject {
             self.selectedWindowID = newSelectedID
             self.selectedIndex = newIndex
         }
+    }
+
+    private func applySelectionForCurrentMode() {
+        switch self.mode {
+        case .perApp:
+            if self.visibleApps.indices.contains(self.selectedIndex) {
+                self.selectedAppID = self.visibleApps[self.selectedIndex].id
+            } else {
+                self.selectedAppID = nil
+            }
+            self.selectedWindowID = nil
+        case .perWindow:
+            if self.visibleWindows.indices.contains(self.selectedIndex) {
+                self.selectedWindowID = self.visibleWindows[self.selectedIndex].id
+            } else {
+                self.selectedWindowID = nil
+            }
+            self.selectedAppID = nil
+        }
+    }
+
+    private func commitAppSelection() {
+        guard self.visibleApps.indices.contains(self.selectedIndex) else {
+            AppLog.appState.error("❌ Selection index out of range for visibleApps: index=\(self.selectedIndex, privacy: .public) count=\(self.visibleApps.count, privacy: .public)")
+            return
+        }
+        let selectedApp = self.visibleApps[self.selectedIndex]
+        AppLog.appState.info("🚀 Switching to app: \(selectedApp.appName, privacy: .public) (PID: \(selectedApp.ownerPID, privacy: .public))")
+
+        // Prefer the stored NSRunningApplication, but fall back to resolving by PID if needed
+        let targetApp = selectedApp.owningApplication ?? NSRunningApplication(processIdentifier: selectedApp.ownerPID)
+
+        guard let app = targetApp else {
+            AppLog.appState.error("❓ No NSRunningApplication for selected app; cannot activate directly")
+            return
+        }
+
+        // Try high-level activation first
+        let activated = app.activate(options: [.activateIgnoringOtherApps])
+        if activated {
+            AppLog.appState.info("✅ App activation requested successfully")
+        } else {
+            AppLog.appState.log("⚠️ App activation returned false; attempting AX-based bring-to-front fallback")
+        }
+
+        // Use AccessibilityService to ensure the app is unhidden and all windows are raised/focused.
+        AccessibilityService.shared.bringAllWindowsToFront(for: app)
+    }
+
+    private func commitWindowSelection() {
+        guard self.visibleWindows.indices.contains(self.selectedIndex) else {
+            AppLog.appState.error("❌ Selection index out of range for visibleWindows: index=\(self.selectedIndex, privacy: .public) count=\(self.visibleWindows.count, privacy: .public)")
+            return
+        }
+        let selectedWindow = self.visibleWindows[self.selectedIndex]
+        AppLog.appState.info("🚀 Switching to window: \(selectedWindow.title, privacy: .public) (ID: \(selectedWindow.windowID, privacy: .public)) of app \(selectedWindow.appName, privacy: .public) (PID: \(selectedWindow.ownerPID, privacy: .public))")
+        AppLog.appState.debug("➡️ Bumping window recency and requesting focus")
+        WindowRecents.shared.bump(windowID: selectedWindow.windowID)
+        AccessibilityService.shared.focus(window: selectedWindow)
+        AppLog.appState.debug("📣 Focus request sent to AccessibilityService")
     }
 }
 

@@ -4,9 +4,9 @@ struct SwitcherView: View {
     @EnvironmentObject var appState: AppState
     
     // Aesthetic Constants
-    let itemWidth: CGFloat = 90
-    let itemHeight: CGFloat = 110
-    let spacing: CGFloat = 12
+    let itemWidth: CGFloat = SwitcherLayout.itemWidth
+    let itemHeight: CGFloat = SwitcherLayout.itemHeight
+    let spacing: CGFloat = SwitcherLayout.spacing
 
     var body: some View {
         ZStack {
@@ -125,4 +125,3 @@ struct VisualEffectView: NSViewRepresentable {
         nsView.blendingMode = blendingMode
     }
 }
-

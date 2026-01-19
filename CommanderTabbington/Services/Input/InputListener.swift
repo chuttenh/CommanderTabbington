@@ -36,6 +36,35 @@ class InputListener {
     private var postStartDiagnosticTimer: Timer?
     
     private init() {}
+
+    fileprivate enum AppStateSource {
+        case listener
+        case delegate
+    }
+
+    fileprivate func resolveAppState() -> AppState? {
+        return self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
+    }
+
+    fileprivate func resolveAppStateWithSource() -> (AppState, AppStateSource)? {
+        if let appState = self.appState {
+            return (appState, .listener)
+        }
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            return (appDelegate.appState, .delegate)
+        }
+        return nil
+    }
+
+    fileprivate func commitSelection(stopPoller: Bool = true) {
+        guard let appState = resolveAppState() else { return }
+        DispatchQueue.main.async {
+            appState.commitSelection()
+        }
+        if stopPoller {
+            stopCommandReleasePoller()
+        }
+    }
     
     func start() {
         AppLog.input.info("🎛️ Attempting to start Input Listener (Session Tap).")
@@ -84,8 +113,7 @@ class InputListener {
                             if !self.receivedKeyboardEvent {
                                 DispatchQueue.main.async { [weak self] in
                                     guard let self = self else { return }
-                                    let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
-                                    appState?.handleUserActivation(direction: e.modifierFlags.contains(.shift) ? .previous : .next)
+                                    self.resolveAppState()?.handleUserActivation(direction: e.modifierFlags.contains(.shift) ? .previous : .next)
                                 }
                             }
                             return nil // suppress in our app
@@ -93,26 +121,18 @@ class InputListener {
                     case .flagsChanged:
                         let isCmdNow = hasCommand
                         if !isCmdNow {
-                            let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
-                            if let appState = appState {
+                            if let _ = self.resolveAppState() {
                                 if self.enableDiagnostics { AppLog.input.debug("✅ Local monitor committing on Command release (fallback).") }
-                                DispatchQueue.main.async {
-                                    appState.commitSelection()
-                                    self.stopCommandReleasePoller()
-                                }
+                                self.commitSelection()
                                 return nil
                             }
                         }
                     case .keyUp:
                         if keyCode == UInt16(self.kVK_Tab) {
                             if !hasCommand {
-                                let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
-                                if let appState = appState {
+                                if let _ = self.resolveAppState() {
                                     if self.enableDiagnostics { AppLog.input.debug("✅ Local monitor committing on Tab keyUp (fallback).") }
-                                    DispatchQueue.main.async {
-                                        appState.commitSelection()
-                                        self.stopCommandReleasePoller()
-                                    }
+                                    self.commitSelection()
                                 }
                             }
                             return nil
@@ -214,8 +234,7 @@ class InputListener {
         commandReleasePoller = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             // If switcher not visible, stop polling
-            let appState = self.appState ?? (NSApp.delegate as? AppDelegate)?.appState
-            guard let appState = appState, appState.isSwitcherVisible else {
+            guard let appState = self.resolveAppState(), appState.isSwitcherVisible else {
                 self.stopCommandReleasePoller()
                 return
             }
@@ -224,10 +243,7 @@ class InputListener {
             let commandDown = flags.contains(.maskCommand)
             if !commandDown {
                 if self.enableDiagnostics { AppLog.input.debug("🕵️‍♂️ Poller detected Command release; committing selection.") }
-                DispatchQueue.main.async {
-                    appState.commitSelection()
-                }
-                self.stopCommandReleasePoller()
+                self.commitSelection()
             }
         }
     }
@@ -272,8 +288,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
             let direction: SelectionDirection = flags.contains(.maskShift) ? .previous : .next
             
             DispatchQueue.main.async {
-                let appState = listener.appState ?? (NSApp.delegate as? AppDelegate)?.appState
-                if let appState = appState {
+                if let appState = listener.resolveAppState() {
                     if listener.enableDiagnostics {
                         AppLog.input.debug("🧩 InputListener will call handleUserActivation on AppState: \(String(describing: Unmanaged.passUnretained(appState).toOpaque()), privacy: .public)")
                     }
@@ -307,12 +322,8 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
             // commit the selection as a fallback when Tab is released.
             if !hasCommand {
                 if listener.enableDiagnostics { AppLog.input.debug("✅ Fallback commit on Tab keyUp (Command not held).") }
-                let appState = listener.appState ?? (NSApp.delegate as? AppDelegate)?.appState
-                if let appState = appState {
-                    DispatchQueue.main.async {
-                        appState.commitSelection()
-                    }
-                    listener.stopCommandReleasePoller()
+                if listener.resolveAppState() != nil {
+                    listener.commitSelection()
                 }
                 // Ensure we clear our internal state
                 listener.isCommandPressed = false
@@ -344,18 +355,10 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         listener.noteKeyboardEventReceived()
         
         if !isCmdNow {
-            if let appState = listener.appState {
+            if let (appState, source) = listener.resolveAppStateWithSource() {
                 if listener.enableDiagnostics {
-                    AppLog.input.debug("✅ Committing selection on Command release (flagsChanged via listener.appState).")
-                }
-                DispatchQueue.main.async {
-                    appState.commitSelection()
-                }
-                listener.stopCommandReleasePoller()
-            } else if let appDelegate = NSApp.delegate as? AppDelegate {
-                let appState = appDelegate.appState
-                if listener.enableDiagnostics {
-                    AppLog.input.debug("✅ Committing selection on Command release (flagsChanged via AppDelegate).")
+                    let sourceLabel = source == .listener ? "listener.appState" : "AppDelegate"
+                    AppLog.input.debug("✅ Committing selection on Command release (flagsChanged via \(sourceLabel)).")
                 }
                 DispatchQueue.main.async {
                     appState.commitSelection()

@@ -164,13 +164,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Dynamically size the overlay to prefer width, then two rows, then vertical scroll
     private func updateOverlaySize() {
         guard let panel = overlayPanel else { return }
-        // Match constants used by SwitcherView
-        let itemWidth: CGFloat = 90
-        let itemHeight: CGFloat = 110
-        let spacing: CGFloat = 12
-        let horizontalPadding: CGFloat = 40
-        let verticalPadding: CGFloat = 20
-        
         // Determine item count based on mode
         let count: Int
         switch appState.mode {
@@ -193,6 +186,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Screen constraints and user preferences
         let screenFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let targetSize = overlaySize(for: count, screenFrame: screenFrame)
+        
+        // Apply new frame and keep it centered on the screen
+        var newFrame = NSRect(x: 0, y: 0, width: targetSize.width, height: targetSize.height)
+        let center = NSPoint(x: screenFrame.midX - newFrame.width / 2, y: screenFrame.midY - newFrame.height / 2)
+        newFrame.origin = center
+        panel.setFrame(newFrame, display: true)
+    }
+
+    private func overlaySize(for count: Int, screenFrame: NSRect) -> NSSize {
+        // Match constants used by SwitcherView
+        let itemWidth: CGFloat = SwitcherLayout.itemWidth
+        let itemHeight: CGFloat = SwitcherLayout.itemHeight
+        let spacing: CGFloat = SwitcherLayout.spacing
+        let horizontalPadding: CGFloat = SwitcherLayout.horizontalPadding
+        let verticalPadding: CGFloat = SwitcherLayout.verticalPadding
+        
+        // Screen constraints and user preferences
         let widthFraction = UserDefaults.standard.object(forKey: "maxWidthFraction") as? Double ?? 0.9
         let maxRowsPref = UserDefaults.standard.object(forKey: "maxVisibleRows") as? Int ?? 2
         let maxRows = max(1, min(6, maxRowsPref))
@@ -236,11 +247,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Cap height to the selected number of rows; additional items will scroll vertically
         let targetHeight = heightFor(rows: selectedRows)
         
-        // Apply new frame and keep it centered on the screen
-        var newFrame = NSRect(x: 0, y: 0, width: selectedWidth, height: targetHeight)
-        let center = NSPoint(x: screenFrame.midX - newFrame.width / 2, y: screenFrame.midY - newFrame.height / 2)
-        newFrame.origin = center
-        panel.setFrame(newFrame, display: true)
+        return NSSize(width: selectedWidth, height: targetHeight)
     }
     
     private func setupOverlayWindow() {
