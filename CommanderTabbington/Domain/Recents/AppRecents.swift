@@ -82,10 +82,9 @@ final class AppRecents {
         
         // If we have unknown apps (common at startup), derive order from window lists.
         if unknownCount > 0 {
-            let normalPIDs = Set(apps.filter { $0.tier == .normal }.map { $0.ownerPID })
-            let secondaryPIDs = Set(apps.filter { $0.tier != .normal }.map { $0.ownerPID })
-            var normalOrder: [pid_t] = []
-            var secondaryOrder: [pid_t] = []
+            let appPIDs = Set(apps.map { $0.ownerPID })
+            var onScreenOrder: [pid_t] = []
+            var remainingPIDs = Set<pid_t>()
 
             let onScreenOptions: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
             if let onScreenList = CGWindowListCopyWindowInfo(onScreenOptions, kCGNullWindowID) as? [[String: Any]] {
@@ -93,27 +92,33 @@ final class AppRecents {
                 for entry in onScreenList {
                     if let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32 {
                         let pid = ownerPID
-                        guard normalPIDs.contains(pid) else { continue }
+                        guard appPIDs.contains(pid) else { continue }
                         guard let running = NSRunningApplication(processIdentifier: pid),
                               running.activationPolicy == .regular else { continue }
                         if seen.insert(pid).inserted {
-                            normalOrder.append(pid)
+                            onScreenOrder.append(pid)
                         }
                     }
                 }
             }
 
-            if !secondaryPIDs.isEmpty {
+            remainingPIDs = appPIDs
+            for pid in onScreenOrder {
+                remainingPIDs.remove(pid)
+            }
+
+            var fullOrder: [pid_t] = []
+            if !remainingPIDs.isEmpty {
                 if let fullList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
                     var seen = Set<pid_t>()
                     for entry in fullList {
                         if let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32 {
                             let pid = ownerPID
-                            guard secondaryPIDs.contains(pid) else { continue }
+                            guard remainingPIDs.contains(pid) else { continue }
                             guard let running = NSRunningApplication(processIdentifier: pid),
                                   running.activationPolicy == .regular else { continue }
                             if seen.insert(pid).inserted {
-                                secondaryOrder.append(pid)
+                                fullOrder.append(pid)
                             }
                         }
                     }
@@ -124,13 +129,13 @@ final class AppRecents {
             let maxKnownRank = rankMap.values.filter { $0 != Int.max }.max() ?? -1
             var nextRank = maxKnownRank + 1
 
-            for pid in normalOrder {
+            for pid in onScreenOrder {
                 if rankMap[pid] == Int.max {
                     rankMap[pid] = nextRank
                     nextRank += 1
                 }
             }
-            for pid in secondaryOrder {
+            for pid in fullOrder {
                 if rankMap[pid] == Int.max {
                     rankMap[pid] = nextRank
                     nextRank += 1
