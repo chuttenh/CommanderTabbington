@@ -64,6 +64,7 @@ Referenced components (expected in the project even if not shown above):
 - Sorting rules:
   - Apps: active-first; then MRU rank; then localized case-insensitive app name.
   - Windows: MRU rank; then original array order; then app name; then window title.
+  - Startup fallback: when app MRU is missing, derive order from window lists—on-screen windows for normal tier, full list for hidden/minimized tiers (best-effort).
 - Filtering rules (WindowManager.shouldInclude): layer 0 only, alpha >= 0.01, minimum size ~50x50, ignore known system apps (“Dock”, “Window Server”, “Control Center”, “Notification Center”, and this app).
 
 
@@ -155,6 +156,7 @@ Response style in Xcode:
 - `showDesktopWindows` is a placeholder and not fully wired into filtering.
 - Badge counts depend on `DockBadgeService` which must be present and performant; if unavailable, badge rendering should be disabled via preference.
 - Accessibility permission changes require relaunch; the app auto-restarts when granted.
+- Hidden/minimized ordering at startup is best-effort when no MRU history exists.
 
 
 ## Glossary

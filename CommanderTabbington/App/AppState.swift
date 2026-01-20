@@ -50,7 +50,7 @@ class AppState: ObservableObject {
         if !self.isSwitcherVisible {
             // If no pending open, capture current state and schedule UI appearance after a small delay
             if self.pendingOpenWorkItem == nil {
-                refreshCurrentList()
+                self.refreshCurrentList()
                 if self.visibleApps.isEmpty && self.visibleWindows.isEmpty {
                     AppLog.appState.log("⚠️ No apps or windows available to show in switcher.")
                 }
@@ -58,7 +58,7 @@ class AppState: ObservableObject {
                 let count: Int = (self.mode == .perApp) ? self.visibleApps.count : self.visibleWindows.count
                 self.selectedIndex = (count > 1) ? 1 : 0
 
-                applySelectionForCurrentMode()
+                self.applySelectionForCurrentMode()
 
                 // Schedule showing the overlay after the configured delay
                 let delayMS = UserDefaults.standard.object(forKey: "switcherOpenDelayMS") as? Int ?? 100

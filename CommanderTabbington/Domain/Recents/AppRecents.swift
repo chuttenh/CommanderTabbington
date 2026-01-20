@@ -48,7 +48,7 @@ final class AppRecents {
         let pid = app.processIdentifier
         queue.async { [weak self] in
             guard let self = self else { return }
-            if !self.mruPIDs.contains(pid) {
+            if self.mruPIDs.isEmpty && !self.mruPIDs.contains(pid) {
                 self.mruPIDs.append(pid)
             }
         }
@@ -79,38 +79,60 @@ final class AppRecents {
             if r == Int.max { unknownCount += 1 }
         }
         
-        // If we have unknown apps (common at startup for hidden/minimized ones), 
-        // perform a broader Z-order scan to resolve their relative positions.
+        // If we have unknown apps (common at startup), derive order from window lists.
         if unknownCount > 0 {
-            // Drop .optionOnScreenOnly to include minimized and some hidden windows in the seed
-            if let infoList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+            let normalPIDs = Set(apps.filter { $0.tier == .normal }.map { $0.ownerPID })
+            let secondaryPIDs = Set(apps.filter { $0.tier != .normal }.map { $0.ownerPID })
+            var normalOrder: [pid_t] = []
+            var secondaryOrder: [pid_t] = []
+
+            let onScreenOptions: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+            if let onScreenList = CGWindowListCopyWindowInfo(onScreenOptions, kCGNullWindowID) as? [[String: Any]] {
                 var seen = Set<pid_t>()
-                var order: [pid_t] = []
-                for entry in infoList {
+                for entry in onScreenList {
                     if let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32 {
                         let pid = ownerPID
-                        if !seen.contains(pid) {
-                            seen.insert(pid)
-                            order.append(pid)
+                        guard normalPIDs.contains(pid) else { continue }
+                        guard let running = NSRunningApplication(processIdentifier: pid),
+                              running.activationPolicy == .regular else { continue }
+                        if seen.insert(pid).inserted {
+                            normalOrder.append(pid)
                         }
                     }
                 }
-                
-                // Determine base rank after existing known ranks
-                let maxKnownRank = rankMap.values.filter { $0 != Int.max }.max() ?? -1
-                let base = maxKnownRank + 1
-                var assigned = 0
-                
-                for pid in order {
-                    if rankMap[pid] == Int.max {
-                        rankMap[pid] = base + assigned
-                        assigned += 1
+            }
+
+            if !secondaryPIDs.isEmpty {
+                if let fullList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+                    var seen = Set<pid_t>()
+                    for entry in fullList {
+                        if let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32 {
+                            let pid = ownerPID
+                            guard secondaryPIDs.contains(pid) else { continue }
+                            guard let running = NSRunningApplication(processIdentifier: pid),
+                                  running.activationPolicy == .regular else { continue }
+                            if seen.insert(pid).inserted {
+                                secondaryOrder.append(pid)
+                            }
+                        }
                     }
                 }
-                
-                // Update internal MRU list with newly discovered order if we were empty
-                if unknownCount == apps.count {
-                    queue.async { [weak self] in self?.mruPIDs = order }
+            }
+
+            // Determine base rank after existing known ranks
+            let maxKnownRank = rankMap.values.filter { $0 != Int.max }.max() ?? -1
+            var nextRank = maxKnownRank + 1
+
+            for pid in normalOrder {
+                if rankMap[pid] == Int.max {
+                    rankMap[pid] = nextRank
+                    nextRank += 1
+                }
+            }
+            for pid in secondaryOrder {
+                if rankMap[pid] == Int.max {
+                    rankMap[pid] = nextRank
+                    nextRank += 1
                 }
             }
         }
@@ -129,8 +151,8 @@ final class AppRecents {
     func seedFromCurrentZOrderIfEmpty() {
         queue.async { [weak self] in
             guard let self = self else { return }
-            // Seed if empty OR if we only have the frontmost app
-            guard self.mruPIDs.count <= 1 else { return }
+            // Seed only if empty to avoid clobbering activation-based order
+            guard self.mruPIDs.isEmpty else { return }
             
             // Drop .optionOnScreenOnly to capture minimized/off-screen windows for a complete initial MRU list
             guard let infoList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return }
@@ -156,6 +178,7 @@ final class AppRecents {
             }
         }
     }
+
 }
 
 extension Array where Element == SystemApp {
@@ -166,4 +189,3 @@ extension Array where Element == SystemApp {
         self = normal + hidden + minimized
     }
 }
-

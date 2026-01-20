@@ -13,6 +13,7 @@ class WindowManager {
     static let shared = WindowManager()
     private init() {}
     
+    
     /// Fetches a list of all relevant open windows.
     func getOpenWindows() -> [SystemWindow] {
         // 1. Define the options
@@ -261,4 +262,3 @@ class WindowManager {
     }
     
 }
-
