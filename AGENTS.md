@@ -29,6 +29,7 @@ Non-goals (for now):
 - Entry point: `CommanderTabbingtonApp` delegates to `AppDelegate` for lifecycle and UI orchestration.
 - Input: A keyboard listener (see “Referenced components” below) detects the hotkey sequence and calls `AppState.handleUserActivation`.
 - State: `AppState` is the single source of truth for overlay visibility, mode, lists, and selection index. It defers overlay appearance by a configurable delay to avoid flicker on quick taps.
+- Startup ordering: first activation waits for `AppRecents.ensureSeeded` and `WindowRecents.ensureSeeded` before showing the overlay to avoid MRU races.
 - Enumeration: `WindowManager` builds lists of `SystemWindow` and `SystemApp` using Core Graphics (`CGWindowListCopyWindowInfo`) and augments with Accessibility for hidden/minimized windows when preferences allow.
 - Ordering: `AppRecents` and `WindowRecents` maintain MRU lists and provide sort helpers. They seed from current z-order when little MRU history exists.
 - UI: `SwitcherView` (SwiftUI) renders a grid of `AppCardView` items inside a glassy background, embedded in a borderless, non-activating `NSPanel` created by `AppDelegate`.

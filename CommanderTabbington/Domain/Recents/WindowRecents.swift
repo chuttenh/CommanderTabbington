@@ -8,10 +8,11 @@ final class WindowRecents {
     private var mruIDs: [CGWindowID] = []
     private let queue = DispatchQueue(label: "WindowRecents.queue")
 
-    private init() {
-        // Initial seed including off-screen windows
-        seedFromCurrentZOrderIfEmpty()
-    }
+    private var hasSeeded: Bool = false
+    private var seedInProgress: Bool = false
+    private var seedCompletions: [() -> Void] = []
+
+    private init() {}
 
     func bump(windowID: CGWindowID) {
         queue.async { [weak self] in
@@ -93,12 +94,45 @@ final class WindowRecents {
         }
     }
 
-    func seedFromCurrentZOrderIfEmpty() {
+    func ensureSeeded(completion: @escaping () -> Void) {
+        var alreadySeeded = false
+        queue.sync {
+            alreadySeeded = self.hasSeeded
+        }
+        if alreadySeeded {
+            DispatchQueue.main.async { completion() }
+            return
+        }
+
         queue.async { [weak self] in
             guard let self = self else { return }
-            guard self.mruIDs.isEmpty else { return }
-            // Drop .optionOnScreenOnly to ensure all windows are ranked by recency on launch
-            guard let infoList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return }
+            if self.hasSeeded {
+                DispatchQueue.main.async { completion() }
+                return
+            }
+
+            self.seedCompletions.append(completion)
+            if self.seedInProgress { return }
+            self.seedInProgress = true
+
+            if !self.mruIDs.isEmpty {
+                self.hasSeeded = true
+                self.seedInProgress = false
+                let completions = self.seedCompletions
+                self.seedCompletions.removeAll()
+                DispatchQueue.main.async { completions.forEach { $0() } }
+                return
+            }
+
+            guard let infoList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+                self.hasSeeded = true
+                self.seedInProgress = false
+                let completions = self.seedCompletions
+                self.seedCompletions.removeAll()
+                DispatchQueue.main.async { completions.forEach { $0() } }
+                return
+            }
+
             var order: [CGWindowID] = []
             for entry in infoList {
                 if let idNum = entry[kCGWindowNumber as String] as? Int {
@@ -108,6 +142,12 @@ final class WindowRecents {
             if !order.isEmpty {
                 self.mruIDs = order
             }
+
+            self.hasSeeded = true
+            self.seedInProgress = false
+            let completions = self.seedCompletions
+            self.seedCompletions.removeAll()
+            DispatchQueue.main.async { completions.forEach { $0() } }
         }
     }
 }
@@ -120,4 +160,3 @@ extension Array where Element == SystemWindow {
         self = normal + hidden + minimized
     }
 }
-

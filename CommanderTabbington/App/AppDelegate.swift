@@ -89,6 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         if self.overlayPanel.canBecomeVisibleWithoutLogin {
                             // no-op, but keep for future checks
                         }
+                        self.overlayPanel.alphaValue = 1.0
                         self.updateOverlaySize()
                         self.overlayPanel.orderFrontRegardless()
                         if self.overlayPanel.isKeyWindow {
@@ -162,9 +163,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         InputListener.shared.start()
         FocusMonitor.shared.start()
         
-        // Seed MRU orders from current z-order for first activation
-        AppRecents.shared.seedFromCurrentZOrderIfEmpty()
-        WindowRecents.shared.seedFromCurrentZOrderIfEmpty()
+        // MRU seeding is gated on first activation to ensure ordering is ready before display.
         
         AppLog.app.info("🚀 Commander Tabbington started.")
     }

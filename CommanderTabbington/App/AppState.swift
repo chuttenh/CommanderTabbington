@@ -22,6 +22,7 @@ class AppState: ObservableObject {
     
     // Delayed open support
     private var pendingOpenWorkItem: DispatchWorkItem?
+    private var pendingOpenGateToken: UUID?
     
     init() {
         // Initialize mode from user defaults (default: perApp)
@@ -50,30 +51,58 @@ class AppState: ObservableObject {
         if !self.isSwitcherVisible {
             // If no pending open, capture current state and schedule UI appearance after a small delay
             if self.pendingOpenWorkItem == nil {
-                self.refreshCurrentList()
-                if self.visibleApps.isEmpty && self.visibleWindows.isEmpty {
-                    AppLog.appState.log("⚠️ No apps or windows available to show in switcher.")
-                }
-                // Preselect the second entry (index 1) by default
-                let count: Int = (self.mode == .perApp) ? self.visibleApps.count : self.visibleWindows.count
-                self.selectedIndex = (count > 1) ? 1 : 0
-
-                self.applySelectionForCurrentMode()
-
-                // Schedule showing the overlay after the configured delay
-                let delayMS = UserDefaults.standard.object(forKey: "switcherOpenDelayMS") as? Int ?? 100
-                var workItem: DispatchWorkItem?
-                workItem = DispatchWorkItem { [weak self] in
+                let gateToken = UUID()
+                self.pendingOpenGateToken = gateToken
+                let prepareAndScheduleOpen = { [weak self] in
                     guard let self = self else { return }
-                    // Ensure this is still the active pending item; if it was canceled or superseded, do nothing
+                    guard self.pendingOpenGateToken == gateToken else { return }
+                    self.refreshCurrentList()
+                    if self.visibleApps.isEmpty && self.visibleWindows.isEmpty {
+                        AppLog.appState.log("⚠️ No apps or windows available to show in switcher.")
+                    }
+                    // Preselect the second entry (index 1) by default
+                    let count: Int = (self.mode == .perApp) ? self.visibleApps.count : self.visibleWindows.count
+                    self.selectedIndex = (count > 1) ? 1 : 0
+
+                    self.applySelectionForCurrentMode()
+
+                    // Schedule showing the overlay after the configured delay
+                    let delayMS = UserDefaults.standard.object(forKey: "switcherOpenDelayMS") as? Int ?? 100
+                    var workItem: DispatchWorkItem?
+                    workItem = DispatchWorkItem { [weak self] in
+                        guard let self = self else { return }
+                        // Ensure this is still the active pending item; if it was canceled or superseded, do nothing
                     guard self.pendingOpenWorkItem === workItem else { return }
                     self.isSwitcherVisible = true
                     self.pendingOpenWorkItem = nil
+                    self.pendingOpenGateToken = nil
                     AppLog.appState.info("🔎 Switcher opened (delayed). apps=\(self.visibleApps.count, privacy: .public) windows=\(self.visibleWindows.count, privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public)")
                 }
-                if let wi = workItem {
-                    self.pendingOpenWorkItem = wi
-                    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(max(0, delayMS)), execute: wi)
+                    if let wi = workItem {
+                        self.pendingOpenWorkItem = wi
+                        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(max(0, delayMS)), execute: wi)
+                    }
+                }
+
+                let fallbackDelay: DispatchTimeInterval = .milliseconds(300)
+                var didPrepare = false
+
+                let runOnce: () -> Void = { [weak self] in
+                    guard let self = self, !didPrepare else { return }
+                    guard self.pendingOpenGateToken == gateToken else { return }
+                    guard !self.isSwitcherVisible else { return }
+                    didPrepare = true
+                    prepareAndScheduleOpen()
+                }
+
+                AppRecents.shared.ensureSeeded {
+                    WindowRecents.shared.ensureSeeded {
+                        runOnce()
+                    }
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + fallbackDelay) {
+                    runOnce()
                 }
             } else {
                 // Already pending; allow cycling before the UI becomes visible
@@ -112,6 +141,7 @@ class AppState: ObservableObject {
         if hadPendingOpen {
             self.pendingOpenWorkItem?.cancel()
             self.pendingOpenWorkItem = nil
+            self.pendingOpenGateToken = nil
         }
         
         guard self.isSwitcherVisible || hadPendingOpen else {
@@ -133,6 +163,7 @@ class AppState: ObservableObject {
     func cancelSelection() {
         self.isSwitcherVisible = false
         if let w = self.pendingOpenWorkItem { w.cancel(); self.pendingOpenWorkItem = nil }
+        self.pendingOpenGateToken = nil
         // Optional: Return focus to previousApp if needed
     }
     

@@ -8,6 +8,9 @@ final class AppRecents {
     // Most-recently-used list of PIDs, index 0 is most recent (frontmost)
     private var mruPIDs: [pid_t] = []
     private let queue = DispatchQueue(label: "AppRecents.queue")
+    private var hasSeeded: Bool = false
+    private var seedInProgress: Bool = false
+    private var seedCompletions: [() -> Void] = []
 
     private init() {
         let nc = NSWorkspace.shared.notificationCenter
@@ -21,8 +24,6 @@ final class AppRecents {
             mruPIDs = [pid]
         }
         
-        // Perform an initial full Z-order scan to populate hidden/minimized apps
-        seedFromCurrentZOrderIfEmpty()
     }
 
     @objc private func appActivated(_ note: Notification) {
@@ -148,34 +149,65 @@ final class AppRecents {
         }
     }
 
-    func seedFromCurrentZOrderIfEmpty() {
+    func ensureSeeded(completion: @escaping () -> Void) {
+        var alreadySeeded = false
+        queue.sync {
+            alreadySeeded = self.hasSeeded
+        }
+        if alreadySeeded {
+            DispatchQueue.main.async { completion() }
+            return
+        }
+
         queue.async { [weak self] in
             guard let self = self else { return }
-            // Seed only if empty to avoid clobbering activation-based order
-            guard self.mruPIDs.isEmpty else { return }
-            
+            if self.hasSeeded {
+                DispatchQueue.main.async { completion() }
+                return
+            }
+
+            self.seedCompletions.append(completion)
+            if self.seedInProgress { return }
+            self.seedInProgress = true
+
+            if !self.mruPIDs.isEmpty {
+                self.hasSeeded = true
+                self.seedInProgress = false
+                let completions = self.seedCompletions
+                self.seedCompletions.removeAll()
+                DispatchQueue.main.async { completions.forEach { $0() } }
+                return
+            }
+
             // Drop .optionOnScreenOnly to capture minimized/off-screen windows for a complete initial MRU list
-            guard let infoList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return }
-            var seen = Set<pid_t>()
-            var order: [pid_t] = []
-            for entry in infoList {
-                if let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32 {
-                    let pid = ownerPID
-                    if !seen.contains(pid) {
-                        seen.insert(pid)
-                        order.append(pid)
+            if let infoList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+                var seen = Set<pid_t>()
+                var order: [pid_t] = []
+                for entry in infoList {
+                    if let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32 {
+                        let pid = ownerPID
+                        if !seen.contains(pid) {
+                            seen.insert(pid)
+                            order.append(pid)
+                        }
                     }
                 }
-            }
-            
-            if !order.isEmpty {
-                // Preserve frontmost if already tracked
-                var merged = self.mruPIDs
-                for pid in order {
-                    if !merged.contains(pid) { merged.append(pid) }
+
+                if !order.isEmpty {
+                    // Preserve frontmost if already tracked
+                    var merged = self.mruPIDs
+                    for pid in order {
+                        if !merged.contains(pid) { merged.append(pid) }
+                    }
+                    self.mruPIDs = merged
                 }
-                self.mruPIDs = merged
             }
+
+            self.hasSeeded = true
+            self.seedInProgress = false
+            let completions = self.seedCompletions
+            self.seedCompletions.removeAll()
+            DispatchQueue.main.async { completions.forEach { $0() } }
         }
     }
 
