@@ -31,7 +31,7 @@ Non-goals (for now):
 - State: `AppState` is the single source of truth for overlay visibility, mode, lists, and selection index. It defers overlay appearance by a configurable delay to avoid flicker on quick taps.
 - Startup ordering: first activation waits for `AppRecents.ensureSeeded` and `WindowRecents.ensureSeeded` before showing the overlay to avoid MRU races.
 - Enumeration: `WindowManager` builds lists of `SystemWindow` and `SystemApp` using Core Graphics (`CGWindowListCopyWindowInfo`) and augments with Accessibility for hidden/minimized windows when preferences allow.
-- Ordering: `AppRecents` and `WindowRecents` maintain MRU lists and provide sort helpers. They seed from current z-order when little MRU history exists.
+- Ordering: `AppRecents` and `WindowRecents` maintain MRU lists and provide sort helpers. When MRU is missing, they derive a best-effort ordering from WindowServer z-order lists.
 - UI: `SwitcherView` (SwiftUI) renders a grid of `AppCardView` items inside a glassy background, embedded in a borderless, non-activating `NSPanel` created by `AppDelegate`.
 - Commit: On key release, `AppState.commitSelection` hides the overlay and triggers `AccessibilityService` to activate the selected app or focus the specific window.
 - Sync: `AppDelegate` observes NSWorkspace notifications (launch, terminate, hide/unhide, activate) and preferences changes to refresh lists and recompute overlay size when relevant.
@@ -65,7 +65,8 @@ Referenced components (expected in the project even if not shown above):
 - Sorting rules:
   - Apps: active-first; then MRU rank; then localized case-insensitive app name.
   - Windows: MRU rank; then original array order; then app name; then window title.
-  - Startup fallback: when app MRU is missing, derive order from window lists—on-screen windows for normal tier, full list for hidden/minimized tiers (best-effort).
+  - Startup fallback: when MRU is missing, derive order from window lists—first on-screen, then the full list (best-effort).
+- Visibility preferences: hidden/minimized exclusions do not apply to the active app, so it always remains selectable.
 - Filtering rules (WindowManager.shouldInclude): layer 0 only, alpha >= 0.01, minimum size ~50x50, ignore known system apps (“Dock”, “Window Server”, “Control Center”, “Notification Center”, and this app).
 
 
@@ -112,7 +113,7 @@ Referenced components (expected in the project even if not shown above):
 ### Change ordering/sorting rules
 1) Apps: Update `AppRecents.sortAppsByRecency(_:)` and maintain the active-first rule and name tiebreaker.
 2) Windows: Update `WindowRecents.sortWindowsByRecency(_:)`; preserve stable tiebreakers.
-3) Seeding: If seeding behavior changes, update `seedFromCurrentZOrderIfEmpty()` as well.
+3) Seeding: If initial MRU handling changes, update the startup fallback logic in the recents sorters.
 4) Validate: Exercise both Per App and Per Window modes; check quick-switch behavior and overlay selection defaults.
 
 ### Filter window noise more/less aggressively

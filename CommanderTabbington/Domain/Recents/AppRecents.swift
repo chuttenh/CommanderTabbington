@@ -9,14 +9,11 @@ final class AppRecents {
     private var mruPIDs: [pid_t] = []
     private let queue = DispatchQueue(label: "AppRecents.queue")
     private var hasSeeded: Bool = false
-    private var seedInProgress: Bool = false
-    private var seedCompletions: [() -> Void] = []
 
     private init() {
         let nc = NSWorkspace.shared.notificationCenter
         nc.addObserver(self, selector: #selector(appActivated(_:)), name: NSWorkspace.didActivateApplicationNotification, object: nil)
         nc.addObserver(self, selector: #selector(appTerminated(_:)), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
-        nc.addObserver(self, selector: #selector(appLaunched(_:)), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
         
         // Seed with current frontmost app if available
         if let front = NSWorkspace.shared.frontmostApplication {
@@ -44,17 +41,6 @@ final class AppRecents {
         }
     }
 
-    @objc private func appLaunched(_ note: Notification) {
-        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-        let pid = app.processIdentifier
-        queue.async { [weak self] in
-            guard let self = self else { return }
-            if self.mruPIDs.isEmpty && !self.mruPIDs.contains(pid) {
-                self.mruPIDs.append(pid)
-            }
-        }
-    }
-
     func bump(pid: pid_t) {
         queue.async { [weak self] in
             guard let self = self else { return }
@@ -72,12 +58,16 @@ final class AppRecents {
     }
 
     func sortAppsByRecency(_ apps: inout [SystemApp]) {
-        var rankMap: [pid_t: Int] = [:]
+        // Snapshot MRU once for performance and consistency
+        let mruSnapshot: [pid_t] = queue.sync { self.mruPIDs }
+        var rankMap: [pid_t: Int] = Dictionary(uniqueKeysWithValues: mruSnapshot.enumerated().map { ($0.element, $0.offset) })
+
         var unknownCount = 0
         for app in apps {
-            let r = rank(for: app.ownerPID)
-            rankMap[app.ownerPID] = r
-            if r == Int.max { unknownCount += 1 }
+            if rankMap[app.ownerPID] == nil {
+                rankMap[app.ownerPID] = Int.max
+                unknownCount += 1
+            }
         }
         
         // If we have unknown apps (common at startup), derive order from window lists.
@@ -155,71 +145,23 @@ final class AppRecents {
     }
 
     func ensureSeeded(completion: @escaping () -> Void) {
-        var alreadySeeded = false
+        // Mark seeded once; callers can invoke this multiple times.
         queue.sync {
-            alreadySeeded = self.hasSeeded
-        }
-        if alreadySeeded {
-            DispatchQueue.main.async { completion() }
-            return
+            if !self.hasSeeded { self.hasSeeded = true }
         }
 
-        queue.async { [weak self] in
-            guard let self = self else { return }
-            if self.hasSeeded {
-                DispatchQueue.main.async { completion() }
-                return
-            }
-
-            self.seedCompletions.append(completion)
-            if self.seedInProgress { return }
-            self.seedInProgress = true
-
-            if !self.mruPIDs.isEmpty {
-                self.hasSeeded = true
-                self.seedInProgress = false
-                let completions = self.seedCompletions
-                self.seedCompletions.removeAll()
-                DispatchQueue.main.async { completions.forEach { $0() } }
-                return
-            }
-
-            // Drop .optionOnScreenOnly to capture minimized/off-screen windows for a complete initial MRU list
-            if let infoList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
-                var seen = Set<pid_t>()
-                var order: [pid_t] = []
-                for entry in infoList {
-                    if let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32 {
-                        let pid = ownerPID
-                        if !seen.contains(pid) {
-                            seen.insert(pid)
-                            order.append(pid)
-                        }
-                    }
-                }
-
-                if !order.isEmpty {
-                    // Preserve frontmost if already tracked
-                    var merged = self.mruPIDs
-                    for pid in order {
-                        if !merged.contains(pid) { merged.append(pid) }
-                    }
-                    self.mruPIDs = merged
-                }
-            }
-
-            self.hasSeeded = true
-            self.seedInProgress = false
-            let completions = self.seedCompletions
-            self.seedCompletions.removeAll()
-            DispatchQueue.main.async { completions.forEach { $0() } }
-        }
+        // At app startup we only know the frontmost app for MRU purposes.
+        // Initial ordering of other apps is handled by `sortAppsByRecency` using CGWindowList heuristics.
+        DispatchQueue.main.async { completion() }
     }
 
 }
 
 extension Array where Element == SystemApp {
-    mutating func sortByTierAndRecency() {
+    
+    // Groups apps by tier (normal → hidden → minimized) while preserving the existing order within each tier.
+    // Note: This does *not* compute recency; callers should sort by MRU first (e.g., via `AppRecents.sortAppsByRecency`) if desired.
+    mutating func groupByTierPreservingOrder() {
         let normal = self.filter { $0.tier == .normal }
         let hidden = self.filter { $0.tier == .hidden }
         let minimized = self.filter { $0.tier == .minimized }

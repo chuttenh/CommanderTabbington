@@ -180,8 +180,8 @@ class AppState: ObservableObject {
         case .perApp:
             let prevID = self.selectedAppID
             var apps = WindowManager.shared.getOpenApps()
-            // Sort by tier then MRU; inside tier preserve existing ordering rules
-            apps.sortByTierAndRecency()
+            // getOpenApps() returns MRU-sorted and tiered; group tiers while preserving MRU within each tier
+            apps.groupByTierPreservingOrder()
 
             let newSelectedID: pid_t? = {
                 if let prev = prevID, apps.contains(where: { $0.id == prev }) { return prev }
@@ -202,19 +202,8 @@ class AppState: ObservableObject {
         case .perWindow:
             let prevID = self.selectedWindowID
             var windows = WindowManager.shared.getOpenWindows()
-            // Normalize tier according to current preferences (map to .normal when preference is .normal)
-            let hiddenPref = PreferenceUtils.hiddenPlacement()
-            let minimizedPref = PreferenceUtils.minimizedPlacement()
-            if hiddenPref == .normal || minimizedPref == .normal {
-                windows = windows.map { w in
-                    var copy = w
-                    if w.tier == .hidden && hiddenPref == .normal { copy.tier = .normal }
-                    if w.tier == .minimized && minimizedPref == .normal { copy.tier = .normal }
-                    return copy
-                }
-            }
-            // Sort by tier then MRU
-            windows.sortByTierAndRecency()
+            // getOpenWindows() returns MRU-sorted and tiered; group tiers while preserving MRU within each tier
+            windows.groupByTierPreservingOrder()
 
             let newSelectedID: CGWindowID? = {
                 if let prev = prevID, windows.contains(where: { $0.id == prev }) { return prev }

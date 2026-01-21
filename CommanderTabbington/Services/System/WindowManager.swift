@@ -55,6 +55,29 @@ class WindowManager {
             let boundsDict = entry[kCGWindowBounds as String] as? [String: Any]
             let frame = CGRect(dictionaryRepresentation: boundsDict as CFDictionary? ?? [:] as CFDictionary) ?? .zero
             
+            // Determine tier based on app hidden/minimized status and preferences
+            var tier: VisibilityTier = .normal
+            if let app = appRef {
+                let appIsActive = app.isActive
+                let appHidden = app.isHidden
+                // We don't have minimized info from CGWindowList, so treat as normal here.
+                if appIsActive {
+                    tier = .normal
+                } else if appHidden {
+                    switch hiddenPref {
+                    case .exclude:
+                        continue
+                    case .atEnd:
+                        tier = .hidden
+                    case .normal:
+                        tier = .normal
+                    }
+                } else {
+                    // For minimized, no info here, so treat as normal
+                    tier = .normal
+                }
+            }
+            
             // 5. Generate Screenshot (Thumbnail)
             
             let window = SystemWindow(
@@ -64,7 +87,8 @@ class WindowManager {
                 ownerPID: ownerPID,
                 owningApplication: appRef,
                 appIcon: appRef?.icon,
-                frame: frame
+                frame: frame,
+                tier: tier
             )
             windows.append(window)
         }
@@ -104,13 +128,27 @@ class WindowManager {
                            let min = minRef as? Bool {
                             isMinimized = min
                         }
+                        let appIsActive = appRef.isActive
+
                         let tier: VisibilityTier
                         if isMinimized {
-                            if minimizedPref == .exclude { continue }
-                            tier = .minimized
+                            // Respect exclusion unless it's the active app.
+                            if minimizedPref == .exclude && !appIsActive { continue }
+                            if appIsActive {
+                                tier = .normal
+                            } else {
+                                // Placement preference: either segregate at end or keep in main tier.
+                                tier = (minimizedPref == .atEnd) ? .minimized : .normal
+                            }
                         } else if appHidden {
-                            if hiddenPref == .exclude { continue }
-                            tier = .hidden
+                            // Respect exclusion unless it's the active app.
+                            if hiddenPref == .exclude && !appIsActive { continue }
+                            if appIsActive {
+                                tier = .normal
+                            } else {
+                                // Placement preference: either segregate at end or keep in main tier.
+                                tier = (hiddenPref == .atEnd) ? .hidden : .normal
+                            }
                         } else {
                             // Not minimized and app not hidden; if it wasn't in CG list, skip to avoid duplicates
                             continue
@@ -260,5 +298,4 @@ class WindowManager {
         
         return true
     }
-    
 }
