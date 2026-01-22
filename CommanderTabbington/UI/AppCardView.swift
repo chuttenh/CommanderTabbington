@@ -66,14 +66,21 @@ struct AppCardView: View {
 
 struct BadgeView: View {
     let count: Int
+
+    private let badgeSize: CGFloat = 23
+
+    private var displayText: String {
+        count > 999 ? "999+" : "\(count)"
+    }
     
     private var fontSize: CGFloat {
-        let digits = String(count).count
-        switch digits {
-        case 1: return 13
-        case 2: return 12
-        case 3: return 11
-        default: return 10
+        let length = displayText.count
+        switch length {
+        case 1: return 12
+        case 2: return 11
+        case 3: return 10
+        case 4: return 8
+        default: return 8
         }
     }
     
@@ -81,18 +88,20 @@ struct BadgeView: View {
         ZStack {
             Circle()
                 .fill(Color.red)
-                .frame(width: 22, height: 22)
+                .frame(width: badgeSize, height: badgeSize)
             if count > 0 {
                 // Limit set to 999 as requested
-                Text("\(count > 999 ? "999+" : "\(count)")")
+                Text(displayText)
                     .font(.system(size: fontSize, weight: .bold))
+                    .monospacedDigit()
                     .foregroundColor(.white)
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
+                    .frame(width: badgeSize, height: badgeSize, alignment: .center)
+                    .multilineTextAlignment(.center)
             }
         }
         .shadow(radius: 2)
         .accessibilityLabel(count > 0 ? "\(count) notifications" : "Has notifications")
     }
 }
-
