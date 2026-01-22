@@ -7,6 +7,7 @@ struct SwitcherView: View {
     let itemWidth: CGFloat = SwitcherLayout.itemWidth
     let itemHeight: CGFloat = SwitcherLayout.itemHeight
     let spacing: CGFloat = SwitcherLayout.spacing
+    let cornerRadius: CGFloat = 16
 
     var body: some View {
         ZStack {
@@ -104,6 +105,7 @@ struct SwitcherView: View {
                 Spacer(minLength: 0)
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }
 

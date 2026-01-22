@@ -32,6 +32,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var permissionsAccessibilityStatusLabel: NSTextField?
     private var permissionsAccessibilityActionButton: NSButton?
     private var permissionsWindow: NSWindow?
+    private var permissionsLossTimer: DispatchSourceTimer?
+    private var hasHandledPermissionsLoss: Bool = false
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         let skipSingleInstanceCheck = UserDefaults.standard.bool(forKey: "SkipSingleInstanceCheck")
@@ -162,6 +164,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         InputListener.shared.appState = appState
         InputListener.shared.start()
         FocusMonitor.shared.start()
+
+        startAccessibilityLossMonitor()
         
         // MRU seeding is gated on first activation to ensure ordering is ready before display.
         
@@ -178,6 +182,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         for token in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(token) }
         workspaceObservers.removeAll()
+        stopAccessibilityLossMonitor()
     }
     
     // MARK: - Setup Methods
@@ -336,6 +341,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             lastMissingPermissions = []
             hasPresentedPermissionsAlert = false
             closePermissionsWindowIfNeeded()
+            hasHandledPermissionsLoss = false
+            startAccessibilityLossMonitor()
             return
         }
 
@@ -558,6 +565,45 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } catch {
             AppLog.app.error("❌ Failed to relaunch via /usr/bin/open: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func startAccessibilityLossMonitor() {
+        guard isAccessibilityTrusted() else { return }
+        stopAccessibilityLossMonitor()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .seconds(1), repeating: .seconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            guard !self.hasHandledPermissionsLoss else { return }
+            if !self.isAccessibilityTrusted() {
+                self.hasHandledPermissionsLoss = true
+                self.handleAccessibilityPermissionsLoss()
+            }
+        }
+        permissionsLossTimer = timer
+        timer.resume()
+    }
+
+    private func stopAccessibilityLossMonitor() {
+        permissionsLossTimer?.cancel()
+        permissionsLossTimer = nil
+    }
+
+    private func handleAccessibilityPermissionsLoss() {
+        AppLog.app.error("🧯 Accessibility permission lost at runtime; stopping input hooks and exiting.")
+        InputListener.shared.stop()
+        FocusMonitor.shared.stop()
+
+        let alert = NSAlert()
+        alert.messageText = "Accessibility Permission Lost"
+        alert.informativeText = "Commander Tabbington no longer has Accessibility permission. It will quit to avoid interfering with system input. You can re-enable permission in System Settings and relaunch."
+        alert.addButton(withTitle: "Open Accessibility Settings")
+        alert.addButton(withTitle: "Quit")
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            openAccessibilitySettings()
+        }
+        NSApp.terminate(nil)
     }
 
     func windowWillClose(_ notification: Notification) {
