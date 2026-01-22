@@ -23,6 +23,9 @@ class AppState: ObservableObject {
     // Delayed open support
     private var pendingOpenWorkItem: DispatchWorkItem?
     private var pendingOpenGateToken: UUID?
+    private var commandReleaseWatchdog: DispatchSourceTimer?
+    private let commandReleaseWatchdogQueue = DispatchQueue(label: "AppState.commandReleaseWatchdog")
+    private var commandReleasedSince: CFAbsoluteTime?
     
     init() {
         // Initialize mode from user defaults (default: perApp)
@@ -74,6 +77,7 @@ class AppState: ObservableObject {
                         // Ensure this is still the active pending item; if it was canceled or superseded, do nothing
                     guard self.pendingOpenWorkItem === workItem else { return }
                     self.isSwitcherVisible = true
+                    self.startCommandReleaseWatchdog()
                     self.pendingOpenWorkItem = nil
                     self.pendingOpenGateToken = nil
                     AppLog.appState.info("🔎 Switcher opened (delayed). apps=\(self.visibleApps.count, privacy: .public) windows=\(self.visibleWindows.count, privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public)")
@@ -150,6 +154,7 @@ class AppState: ObservableObject {
         }
         
         if self.isSwitcherVisible { self.isSwitcherVisible = false }
+        self.stopCommandReleaseWatchdog()
         AppLog.appState.debug("🫥 Hiding switcher overlay before activation")
         
         switch self.mode {
@@ -164,6 +169,7 @@ class AppState: ObservableObject {
         self.isSwitcherVisible = false
         if let w = self.pendingOpenWorkItem { w.cancel(); self.pendingOpenWorkItem = nil }
         self.pendingOpenGateToken = nil
+        self.stopCommandReleaseWatchdog()
         // Optional: Return focus to previousApp if needed
     }
     
@@ -241,6 +247,46 @@ class AppState: ObservableObject {
             }
             self.selectedAppID = nil
         }
+    }
+
+    private func startCommandReleaseWatchdog() {
+        stopCommandReleaseWatchdog()
+        let timer = DispatchSource.makeTimerSource(queue: commandReleaseWatchdogQueue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(50), leeway: .milliseconds(20))
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            guard self.isSwitcherVisible else {
+                self.stopCommandReleaseWatchdog()
+                return
+            }
+            let flags = CGEventSource.flagsState(.combinedSessionState)
+            let commandDown = flags.contains(.maskCommand)
+            if commandDown {
+                self.commandReleasedSince = nil
+                return
+            }
+            let now = CFAbsoluteTimeGetCurrent()
+            if let since = self.commandReleasedSince {
+                if now - since >= 0.25 {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.commitSelection()
+                    }
+                    self.stopCommandReleaseWatchdog()
+                }
+            } else {
+                self.commandReleasedSince = now
+            }
+        }
+        commandReleaseWatchdog = timer
+        timer.resume()
+    }
+
+    private func stopCommandReleaseWatchdog() {
+        if let timer = commandReleaseWatchdog {
+            timer.cancel()
+            commandReleaseWatchdog = nil
+        }
+        commandReleasedSince = nil
     }
 
     private func commitAppSelection() {

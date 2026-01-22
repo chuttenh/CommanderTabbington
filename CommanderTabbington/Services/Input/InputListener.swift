@@ -22,7 +22,8 @@ class InputListener {
     var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var localEventMonitor: Any?
-    private var commandReleasePoller: Timer?
+    private var commandReleasePoller: DispatchSourceTimer?
+    private let commandReleaseQueue = DispatchQueue(label: "InputListener.commandReleasePoller")
     
     #if DEBUG
         var enableDiagnostics: Bool = true
@@ -255,8 +256,10 @@ class InputListener {
     
     fileprivate func startCommandReleasePoller() {
         stopCommandReleasePoller()
-        // Poll for Command key release independent of event delivery
-        commandReleasePoller = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
+        // Poll for Command key release independent of event delivery.
+        let timer = DispatchSource.makeTimerSource(queue: commandReleaseQueue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(30), leeway: .milliseconds(5))
+        timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             // If switcher not visible, stop polling
             guard let appState = self.resolveAppState(), appState.isSwitcherVisible else {
@@ -271,11 +274,15 @@ class InputListener {
                 self.commitSelection()
             }
         }
+        commandReleasePoller = timer
+        timer.resume()
     }
 
     fileprivate func stopCommandReleasePoller() {
-        commandReleasePoller?.invalidate()
-        commandReleasePoller = nil
+        if let timer = commandReleasePoller {
+            timer.cancel()
+            commandReleasePoller = nil
+        }
     }
 }
 
