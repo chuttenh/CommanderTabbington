@@ -24,6 +24,9 @@ class InputListener {
     private var localEventMonitor: Any?
     private var commandReleasePoller: DispatchSourceTimer?
     private let commandReleaseQueue = DispatchQueue(label: "InputListener.commandReleasePoller")
+    private var commandReleaseWatchdog: DispatchSourceTimer?
+    private let commandReleaseWatchdogQueue = DispatchQueue(label: "InputListener.commandReleaseWatchdog")
+    private var commandReleasedSince: CFAbsoluteTime?
     
     #if DEBUG
         var enableDiagnostics: Bool = true
@@ -65,6 +68,16 @@ class InputListener {
         }
         if stopPoller {
             stopCommandReleasePoller()
+            stopCommandReleaseWatchdog()
+        }
+    }
+
+    fileprivate func handleTapDisabled() {
+        stopCommandReleasePoller()
+        stopCommandReleaseWatchdog()
+        isCommandPressed = false
+        DispatchQueue.main.async { [weak self] in
+            self?.resolveAppState()?.cancelSelection()
         }
     }
 
@@ -244,6 +257,7 @@ class InputListener {
         secureInputTimer?.invalidate(); secureInputTimer = nil
         postStartDiagnosticTimer?.invalidate(); postStartDiagnosticTimer = nil
         stopCommandReleasePoller()
+        stopCommandReleaseWatchdog()
     }
     
     func noteKeyboardEventReceived() {
@@ -284,6 +298,44 @@ class InputListener {
             commandReleasePoller = nil
         }
     }
+
+    fileprivate func startCommandReleaseWatchdog() {
+        stopCommandReleaseWatchdog()
+        let timer = DispatchSource.makeTimerSource(queue: commandReleaseWatchdogQueue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(50), leeway: .milliseconds(20))
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            let flags = CGEventSource.flagsState(.combinedSessionState)
+            let commandDown = flags.contains(.maskCommand)
+            if commandDown {
+                self.commandReleasedSince = nil
+                return
+            }
+            let now = CFAbsoluteTimeGetCurrent()
+            if let since = self.commandReleasedSince {
+                if now - since >= 0.25 {
+                    if self.enableDiagnostics { AppLog.input.debug("🧯 Watchdog detected Command release; committing selection.") }
+                    self.commitSelection()
+                }
+            } else {
+                self.commandReleasedSince = now
+            }
+        }
+        commandReleaseWatchdog = timer
+        timer.resume()
+    }
+
+    fileprivate func resetCommandReleaseWatchdogState() {
+        commandReleasedSince = nil
+    }
+
+    fileprivate func stopCommandReleaseWatchdog() {
+        if let timer = commandReleaseWatchdog {
+            timer.cancel()
+            commandReleaseWatchdog = nil
+        }
+        commandReleasedSince = nil
+    }
 }
 
 // MARK: - Global Callback
@@ -300,6 +352,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         if let tap = listener.eventTap {
             CGEvent.tapEnable(tap: tap, enable: true)
         }
+        listener.handleTapDisabled()
         return Unmanaged.passUnretained(event)
     }
 
@@ -310,6 +363,9 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         let flags = event.flags
         let hasCommand = (flags.rawValue & CGEventFlags.maskCommand.rawValue) != 0
         let cmdActive = hasCommand || listener.isCommandPressed
+        if cmdActive {
+            listener.resetCommandReleaseWatchdogState()
+        }
         
         // Check for Cmd+Tab (or Cmd+Shift+Tab) and suppress
         if cmdActive && keyCode == listener.kVK_Tab {
@@ -327,6 +383,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
                     appState.handleUserActivation(direction: direction)
                     // Start release poller to handle cases where flagsChanged/keyUp are suppressed
                     listener.startCommandReleasePoller()
+                    listener.startCommandReleaseWatchdog()
                 } else {
                     AppLog.input.error("❓ No AppState available to handle activation.")
                 }
@@ -399,6 +456,8 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
             } else {
                 if listener.enableDiagnostics { AppLog.input.debug("❓ No AppState available on Command release.") }
             }
+        } else {
+            listener.resetCommandReleaseWatchdogState()
         }
         listener.isCommandPressed = isCmdNow
     }

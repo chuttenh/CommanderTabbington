@@ -28,6 +28,7 @@ Non-goals (for now):
 ## Architecture and data flow
 - Entry point: `CommanderTabbingtonApp` delegates to `AppDelegate` for lifecycle and UI orchestration.
 - Input: A keyboard listener (see “Referenced components” below) detects the hotkey sequence and calls `AppState.handleUserActivation`.
+- Input robustness: InputListener includes a command-release watchdog and tap-disabled bailout to avoid stuck overlays during event-loop stalls.
 - State: `AppState` is the single source of truth for overlay visibility, mode, lists, and selection index. It defers overlay appearance by a configurable delay to avoid flicker on quick taps.
 - Startup ordering: first activation waits for `AppRecents.ensureSeeded` and `WindowRecents.ensureSeeded` before showing the overlay to avoid MRU races.
 - Enumeration: `WindowManager` builds lists of `SystemWindow` and `SystemApp` using Core Graphics (`CGWindowListCopyWindowInfo`) and augments with Accessibility for hidden/minimized windows when preferences allow.
