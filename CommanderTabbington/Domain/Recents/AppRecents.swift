@@ -159,12 +159,11 @@ final class AppRecents {
 
 extension Array where Element == SystemApp {
     
-    // Groups apps by tier (normal → hidden → minimized) while preserving the existing order within each tier.
+    // Groups apps by tier (normal → atEnd) while preserving the existing order within each tier.
     // Note: This does *not* compute recency; callers should sort by MRU first (e.g., via `AppRecents.sortAppsByRecency`) if desired.
     mutating func groupByTierPreservingOrder() {
         let normal = self.filter { $0.tier == .normal }
-        let hidden = self.filter { $0.tier == .hidden }
-        let minimized = self.filter { $0.tier == .minimized }
-        self = normal + hidden + minimized
+        let atEnd = self.filter { $0.tier == .atEnd }
+        self = normal + atEnd
     }
 }

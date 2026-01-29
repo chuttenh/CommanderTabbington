@@ -60,7 +60,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         UserDefaults.standard.register(defaults: ["switcherOpenDelayMS": 100])
         UserDefaults.standard.register(defaults: [
             "HiddenAppsPlacement": PlacementPreference.normal.rawValue,
-            "MinimizedAppsPlacement": PlacementPreference.normal.rawValue
+            "MinimizedAppsPlacement": PlacementPreference.normal.rawValue,
+            "NoWindowAppsPlacement": PlacementPreference.atEnd.rawValue
         ])
         
         // A. Check for Accessibility permissions immediately on launch.

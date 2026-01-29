@@ -1,5 +1,6 @@
 import Cocoa
 import ApplicationServices
+import OSLog
 
 private let AXStatusLabelAttributeName: CFString = "AXStatusLabel" as CFString
 
@@ -52,6 +53,14 @@ final class DockBadgeService {
     // Returns: nil = no badge, 0 = badge dot without number, >0 = numeric badge count
     func badgeCount(for app: NSRunningApplication?) -> Int? {
         guard let app = app else { return nil }
+        let start = CFAbsoluteTimeGetCurrent()
+        defer {
+            let elapsedMS = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
+            if elapsedMS >= 100.0 {
+                let name = app.localizedName ?? "Unknown"
+                AppLog.app.info("⏱️ DockBadgeService badgeCount slow: \(elapsedMS, privacy: .public)ms app=\(name, privacy: .public)")
+            }
+        }
 
         // Respect preferences for hidden or minimized apps
         let includeHidden = UserDefaults.standard.includeHiddenApps

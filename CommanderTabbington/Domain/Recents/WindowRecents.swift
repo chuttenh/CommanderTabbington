@@ -129,12 +129,11 @@ final class WindowRecents {
 }
 
 extension Array where Element == SystemWindow {
-    /// Groups windows by visibility tier (normal, hidden, minimized) while preserving
+    /// Groups windows by visibility tier (normal, atEnd) while preserving
     /// the current order within each tier.
     mutating func groupByTierPreservingOrder() {
         let normal = self.filter { $0.tier == .normal }
-        let hidden = self.filter { $0.tier == .hidden }
-        let minimized = self.filter { $0.tier == .minimized }
-        self = normal + hidden + minimized
+        let atEnd = self.filter { $0.tier == .atEnd }
+        self = normal + atEnd
     }
 }

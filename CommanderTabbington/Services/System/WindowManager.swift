@@ -3,6 +3,7 @@ import CoreGraphics
 import ScreenCaptureKit
 import Foundation
 import ApplicationServices
+import OSLog
 
 // Not provided as a Swift constant; define it for Accessibility API usage
 private let kAXWindowNumberAttribute: CFString = "AXWindowNumber" as CFString
@@ -16,6 +17,18 @@ class WindowManager {
     
     /// Fetches a list of all relevant open windows.
     func getOpenWindows() -> [SystemWindow] {
+        let totalStart = CFAbsoluteTimeGetCurrent()
+        let slowThresholdMS = 100.0
+        let logSlowStep: (_ label: String, _ start: CFAbsoluteTime, _ extra: String?) -> Void = { label, start, extra in
+            let elapsedMS = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
+            guard elapsedMS >= slowThresholdMS else { return }
+            if let extra = extra {
+                AppLog.app.info("⏱️ WindowManager \(label, privacy: .public) slow: \(elapsedMS, privacy: .public)ms \(extra, privacy: .public)")
+            } else {
+                AppLog.app.info("⏱️ WindowManager \(label, privacy: .public) slow: \(elapsedMS, privacy: .public)ms")
+            }
+        }
+
         // 1. Define the options
         // .optionOnScreenOnly: Excludes minimized or hidden windows (essential for a clean switcher).
         // .excludeDesktopElements: Hides the wallpaper and desktop icons.
@@ -26,9 +39,11 @@ class WindowManager {
         
         // 2. Query Core Graphics
         // This returns a CFArray of CFDictionaries.
+        let cgListStart = CFAbsoluteTimeGetCurrent()
         guard let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
+        logSlowStep("CGWindowListCopyWindowInfo", cgListStart, "count=\(infoList.count)")
         
         var windows: [SystemWindow] = []
         
@@ -55,27 +70,27 @@ class WindowManager {
             let boundsDict = entry[kCGWindowBounds as String] as? [String: Any]
             let frame = CGRect(dictionaryRepresentation: boundsDict as CFDictionary? ?? [:] as CFDictionary) ?? .zero
             
-            // Determine tier based on app hidden/minimized status and preferences
-            var tier: VisibilityTier = .normal
-            if let app = appRef {
-                let appIsActive = app.isActive
-                let appHidden = app.isHidden
-                // We don't have minimized info from CGWindowList, so treat as normal here.
-                if appIsActive {
-                    tier = .normal
-                } else if appHidden {
-                    switch hiddenPref {
-                    case .exclude:
-                        continue
-                    case .atEnd:
-                        tier = .hidden
-                    case .normal:
-                        tier = .normal
-                    }
-                } else {
-                    // For minimized, no info here, so treat as normal
+        // Determine tier based on app hidden/minimized status and preferences
+        var tier: VisibilityTier = .normal
+        if let app = appRef {
+            let appIsActive = app.isActive
+            let appHidden = app.isHidden
+            // We don't have minimized info from CGWindowList, so treat as normal here.
+            if appIsActive {
+                tier = .normal
+            } else if appHidden {
+                switch hiddenPref {
+                case .exclude:
+                    continue
+                case .atEnd:
+                    tier = .atEnd
+                case .normal:
                     tier = .normal
                 }
+            } else {
+                // For minimized, no info here, so treat as normal
+                tier = .normal
+            }
             }
             
             // 5. Generate Screenshot (Thumbnail)
@@ -102,6 +117,7 @@ class WindowManager {
 
         // If either preference allows additional windows beyond on-screen ones, merge from Accessibility
         if hiddenPref != .exclude || minimizedPref != .exclude {
+            let axMergeStart = CFAbsoluteTimeGetCurrent()
             let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
             for appRef in running {
                 // let isHidden = appRef.isHidden
@@ -138,7 +154,7 @@ class WindowManager {
                                 tier = .normal
                             } else {
                                 // Placement preference: either segregate at end or keep in main tier.
-                                tier = (minimizedPref == .atEnd) ? .minimized : .normal
+                                tier = (minimizedPref == .atEnd) ? .atEnd : .normal
                             }
                         } else if appHidden {
                             // Respect exclusion unless it's the active app.
@@ -147,7 +163,7 @@ class WindowManager {
                                 tier = .normal
                             } else {
                                 // Placement preference: either segregate at end or keep in main tier.
-                                tier = (hiddenPref == .atEnd) ? .hidden : .normal
+                                tier = (hiddenPref == .atEnd) ? .atEnd : .normal
                             }
                         } else {
                             // Not minimized and app not hidden; if it wasn't in CG list, skip to avoid duplicates
@@ -180,24 +196,45 @@ class WindowManager {
                     }
                 }
             }
+            logSlowStep("AX merge", axMergeStart, "runningApps=\(running.count)")
         }
         
         var sorted = windows
         WindowRecents.shared.sortWindowsByRecency(&sorted)
+        logSlowStep("getOpenWindows total", totalStart, "returned=\(sorted.count)")
         return sorted
     }
     
-    /// Returns one entry per running app that has at least one visible window.
+    /// Returns one entry per running app, including optional no-window apps based on preferences.
     func getOpenApps() -> [SystemApp] {
+        let totalStart = CFAbsoluteTimeGetCurrent()
+        let slowThresholdMS = 100.0
+        let logSlowStep: (_ label: String, _ start: CFAbsoluteTime, _ extra: String?) -> Void = { label, start, extra in
+            let elapsedMS = (CFAbsoluteTimeGetCurrent() - start) * 1000.0
+            guard elapsedMS >= slowThresholdMS else { return }
+            if let extra = extra {
+                AppLog.app.info("⏱️ WindowManager \(label, privacy: .public) slow: \(elapsedMS, privacy: .public)ms \(extra, privacy: .public)")
+            } else {
+                AppLog.app.info("⏱️ WindowManager \(label, privacy: .public) slow: \(elapsedMS, privacy: .public)ms")
+            }
+        }
+
         // Visible windows are used to compute counts and recent ordering
         let windows = getOpenWindows()
         
         let hiddenPref = PreferenceUtils.hiddenPlacement()
         let minimizedPref = PreferenceUtils.minimizedPlacement()
+        let noWindowPref = PreferenceUtils.noWindowPlacement()
+        let debugTiering = UserDefaults.standard.object(forKey: "DebugTiering") as? Bool ?? false
+        let debugTieringAppName = UserDefaults.standard.string(forKey: "DebugTieringAppName")
+        if debugTiering {
+            AppLog.app.info("🧭 Tiering prefs hidden=\(hiddenPref.rawValue, privacy: .public) minimized=\(minimizedPref.rawValue, privacy: .public) noWindow=\(noWindowPref.rawValue, privacy: .public)")
+        }
         
         // Group windows by owning PID for counts
         // let grouped = Dictionary(grouping: windows, by: { $0.ownerPID })
         let groupedVisible = Dictionary(grouping: windows.filter { $0.tier == .normal }, by: { $0.ownerPID })
+        let windowPresence = buildWindowPresenceByPID()
 
         // Preferences for inclusion
         // let includeHidden = UserDefaults.standard.object(forKey: "IncludeHiddenApps") as? Bool ?? true
@@ -221,27 +258,55 @@ class WindowManager {
             if let name = appRef.localizedName, ignoredAppNames.contains(name) { continue }
 
             let appHidden = appRef.isHidden
+            let appIsActive = appRef.isActive
 
             let pid = appRef.processIdentifier
             let visibleWindowCount = groupedVisible[pid]?.count ?? 0
+            let axSummary = axStandardWindowSummary(for: appRef, debugAppName: debugTieringAppName)
+            let hasAnyWindows: Bool
+            var hasVisibleUserWindows: Bool
+            if let summary = axSummary {
+                hasAnyWindows = summary.total > 0 || visibleWindowCount > 0
+                hasVisibleUserWindows = summary.visible > 0 || visibleWindowCount > 0
+            } else {
+                hasAnyWindows = visibleWindowCount > 0 || (windowPresence[pid] ?? false)
+                hasVisibleUserWindows = visibleWindowCount > 0
+            }
 
-            // An app is considered "all minimized" if it's not hidden and has no visible windows
-            let isAllMinimized = !appHidden && (visibleWindowCount == 0)
-            if appHidden && hiddenPref == .exclude { continue }
-            if isAllMinimized && minimizedPref == .exclude { continue }
+            // An app is considered "all minimized" if it's not hidden, has windows, and none are visible
+            let isAllMinimized = !appHidden && !hasVisibleUserWindows && hasAnyWindows
+            let hasNoWindows = !appHidden && !hasAnyWindows
+
+            if !appIsActive {
+                if appHidden && hiddenPref == .exclude { continue }
+                if isAllMinimized && minimizedPref == .exclude { continue }
+                if hasNoWindows && noWindowPref == .exclude { continue }
+            }
 
             let name = appRef.localizedName ?? "Unknown"
             let icon = appRef.icon
 
             var tier: VisibilityTier = .normal
-            if appHidden {
+            if appIsActive {
+                tier = .normal
+            } else if appHidden {
                 if hiddenPref == .atEnd {
-                    tier = .hidden
+                    tier = .atEnd
                 }
             } else if isAllMinimized {
                 if minimizedPref == .atEnd {
-                    tier = .minimized
+                    tier = .atEnd
                 }
+            } else if hasNoWindows {
+                if noWindowPref == .atEnd {
+                    tier = .atEnd
+                }
+            }
+            if debugTiering {
+                let name = appRef.localizedName ?? "Unknown"
+                let axTotal = axSummary?.total ?? -1
+                let axVisible = axSummary?.visible ?? -1
+                AppLog.app.info("🧭 Tiering app=\(name, privacy: .public) active=\(appIsActive, privacy: .public) hidden=\(appHidden, privacy: .public) visible=\(hasVisibleUserWindows, privacy: .public) any=\(hasAnyWindows, privacy: .public) allMin=\(isAllMinimized, privacy: .public) noWin=\(hasNoWindows, privacy: .public) axTotal=\(axTotal, privacy: .public) axVisible=\(axVisible, privacy: .public) tier=\(tier.rawValue, privacy: .public)")
             }
 
             var app = SystemApp(ownerPID: pid,
@@ -259,6 +324,7 @@ class WindowManager {
         // Sort by recency (MRU), active-first, then name as tiebreaker
         AppRecents.shared.sortAppsByRecency(&apps)
 
+        logSlowStep("getOpenApps total", totalStart, "returned=\(apps.count) windows=\(windows.count)")
         return apps
     }
     
@@ -295,7 +361,72 @@ class WindowManager {
                 return false
             }
         }
-        
+
         return true
+    }
+
+    /// Best-effort map of PIDs that have at least one real window (on-screen or off-screen).
+    private func buildWindowPresenceByPID() -> [pid_t: Bool] {
+        var presence: [pid_t: Bool] = [:]
+        let options: CGWindowListOption = [.excludeDesktopElements]
+        guard let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return presence
+        }
+        for entry in infoList {
+            if !shouldInclude(windowInfo: entry) { continue }
+            if let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32 {
+                presence[ownerPID] = true
+            }
+        }
+        return presence
+    }
+
+    /// Summarizes standard AX windows for an app, or nil if unavailable.
+    private func axStandardWindowSummary(for app: NSRunningApplication, debugAppName: String?) -> (total: Int, visible: Int)? {
+        let appAX = AXUIElementCreateApplication(app.processIdentifier)
+        var axWindowsRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(appAX, kAXWindowsAttribute as CFString, &axWindowsRef) == .success,
+           let axWindows = axWindowsRef as? [AXUIElement] {
+            var total = 0
+            var visible = 0
+            let shouldDebug = debugAppName != nil && (app.localizedName?.caseInsensitiveCompare(debugAppName ?? "") == .orderedSame)
+            for axWin in axWindows {
+                var subroleRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(axWin, kAXSubroleAttribute as CFString, &subroleRef) == .success,
+                   let subrole = subroleRef as? String,
+                   subrole != kAXStandardWindowSubrole as String {
+                    continue
+                }
+
+                var minRef: CFTypeRef?
+                var isMinimized = false
+                if AXUIElementCopyAttributeValue(axWin, kAXMinimizedAttribute as CFString, &minRef) == .success,
+                   let min = minRef as? Bool {
+                    isMinimized = min
+                }
+
+                var titleRef: CFTypeRef?
+                let title = (AXUIElementCopyAttributeValue(axWin, kAXTitleAttribute as CFString, &titleRef) == .success)
+                    ? (titleRef as? String ?? "")
+                    : ""
+                var sizeRef: CFTypeRef?
+                let hasSize = AXUIElementCopyAttributeValue(axWin, kAXSizeAttribute as CFString, &sizeRef) == .success
+                let size = hasSize ? (sizeRef as? CGSize ?? .zero) : .zero
+
+                if shouldDebug {
+                    AppLog.app.info("🧭 AX window app=\(app.localizedName ?? "Unknown", privacy: .public) title=\(title, privacy: .public) size=\(Int(size.width), privacy: .public)x\(Int(size.height), privacy: .public) minimized=\(isMinimized, privacy: .public)")
+                }
+
+                // Ignore zero-sized AX windows unless they are minimized (minimized windows often report 0x0).
+                if hasSize && size.width == 0 && size.height == 0 && !isMinimized {
+                    continue
+                }
+
+                total += 1
+                if !isMinimized { visible += 1 }
+            }
+            return (total, visible)
+        }
+        return nil
     }
 }

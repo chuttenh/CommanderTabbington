@@ -18,7 +18,7 @@ Commander Tabbington is a lightweight macOS app/window switcher. It displays a n
 - Predictable ordering: Sort by MRU (most-recently-used), with sensible tie-breakers and active-first behavior.
 - Two modes: Per App and Per Window, switchable in Preferences.
 - Minimal dependencies: Use Apple frameworks (AppKit, SwiftUI, CoreGraphics, Accessibility) and keep the footprint small.
-- Respect user preferences: Hidden/minimized inclusion, badges, layout sizing, and open delay.
+- Respect user preferences: Hidden/minimized/no-window inclusion, badges, layout sizing, and open delay.
 
 Non-goals (for now):
 - Full window thumbnails or live previews (ScreenCaptureKit is imported but not used yet).
@@ -74,8 +74,9 @@ Referenced components (expected in the project even if not shown above):
 ## Preferences and defaults (UserDefaults keys)
 - `perAppMode: Bool` — true = Per App, false = Per Window (default: true)
 - `showNotificationBadges: Bool` — show per-app badges (default: true)
-- `IncludeHiddenApps: Bool` — include hidden apps in lists (default: true)
-- `IncludeMinimizedApps: Bool` — include minimized windows/apps (default: true)
+- `HiddenAppsPlacement: Int` — normal / at-end / exclude hidden apps (default: normal)
+- `MinimizedAppsPlacement: Int` — normal / at-end / exclude minimized windows/apps (default: normal)
+- `NoWindowAppsPlacement: Int` — normal / at-end / exclude apps with no windows (default: at-end)
 - `maxWidthFraction: Double` — max overlay width as a fraction of screen width (default: 0.9)
 - `maxVisibleRows: Int` — maximum rows before enabling vertical scroll (default: 2)
 - `showDesktopWindows: Bool` — placeholder toggle (not fully wired)

@@ -1,14 +1,13 @@
 import Foundation
 
 // Visibility grouping for items in the switcher.
-// Order is significant for sorting: normal (0) -> hidden (1) -> minimized (2).
+// Order is significant for sorting: normal (0) -> atEnd (1).
 public enum VisibilityTier: Int {
     case normal = 0
-    case hidden = 1
-    case minimized = 2
+    case atEnd = 1
 }
 
-// Preference for how to treat hidden/minimized items.
+// Preference for how to treat hidden/minimized/no-window items.
 // normal: treat like main tier; atEnd: include but place after main tier; exclude: omit from lists.
 public enum PlacementPreference: Int {
     case normal = 0
@@ -37,5 +36,14 @@ public enum PreferenceUtils {
         // Fallback to legacy boolean (default true -> normal)
         let legacy = defaults.object(forKey: "IncludeMinimizedApps") as? Bool ?? true
         return legacy ? .normal : .exclude
+    }
+
+    // Reads NoWindowApps placement preference (default: normal).
+    public static func noWindowPlacement() -> PlacementPreference {
+        let defaults = UserDefaults.standard
+        if let raw = defaults.object(forKey: "NoWindowAppsPlacement") as? Int, let pref = PlacementPreference(rawValue: raw) {
+            return pref
+        }
+        return .normal
     }
 }

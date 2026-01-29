@@ -26,6 +26,7 @@ class AppState: ObservableObject {
     private var commandReleaseWatchdog: DispatchSourceTimer?
     private let commandReleaseWatchdogQueue = DispatchQueue(label: "AppState.commandReleaseWatchdog")
     private var commandReleasedSince: CFAbsoluteTime?
+    private var activationID: String?
     
     init() {
         // Initialize mode from user defaults (default: perApp)
@@ -51,6 +52,10 @@ class AppState: ObservableObject {
     /// If the switcher is hidden, it opens it and captures the current state.
     /// If open, it cycles to the next app.
     func handleUserActivation(direction: SelectionDirection = .next) {
+        let activationID = String(UUID().uuidString.prefix(8))
+        self.activationID = activationID
+        let activationStart = CFAbsoluteTimeGetCurrent()
+        AppLog.appState.info("🧭 CmdTab activation id=\(activationID, privacy: .public) direction=\(String(describing: direction), privacy: .public) isVisible=\(self.isSwitcherVisible, privacy: .public) pending=\(self.pendingOpenWorkItem != nil, privacy: .public)")
         if !self.isSwitcherVisible {
             // If no pending open, capture current state and schedule UI appearance after a small delay
             if self.pendingOpenWorkItem == nil {
@@ -59,7 +64,9 @@ class AppState: ObservableObject {
                 let prepareAndScheduleOpen = { [weak self] in
                     guard let self = self else { return }
                     guard self.pendingOpenGateToken == gateToken else { return }
+                    let refreshStart = CFAbsoluteTimeGetCurrent()
                     self.refreshCurrentList()
+                    let refreshElapsedMS = (CFAbsoluteTimeGetCurrent() - refreshStart) * 1000.0
                     if self.visibleApps.isEmpty && self.visibleWindows.isEmpty {
                         AppLog.appState.log("⚠️ No apps or windows available to show in switcher.")
                     }
@@ -68,6 +75,8 @@ class AppState: ObservableObject {
                     self.selectedIndex = (count > 1) ? 1 : 0
 
                     self.applySelectionForCurrentMode()
+                    let totalElapsedMS = (CFAbsoluteTimeGetCurrent() - activationStart) * 1000.0
+                    AppLog.appState.info("🧭 CmdTab prepare id=\(activationID, privacy: .public) refreshMs=\(refreshElapsedMS, privacy: .public) totalMs=\(totalElapsedMS, privacy: .public) apps=\(self.visibleApps.count, privacy: .public) windows=\(self.visibleWindows.count, privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public)")
 
                     // Schedule showing the overlay after the configured delay
                     let delayMS = UserDefaults.standard.object(forKey: "switcherOpenDelayMS") as? Int ?? 100
@@ -137,6 +146,7 @@ class AppState: ObservableObject {
     /// Called when the user releases the modifier key (Cmd).
     /// Commits the selection and hides the UI.
     func commitSelection() {
+        AppLog.appState.info("🧭 CmdTab commit id=\(self.activationID ?? "unknown", privacy: .public) mode=\(String(describing: self.mode), privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public) isVisible=\(self.isSwitcherVisible, privacy: .public) pending=\(self.pendingOpenWorkItem != nil, privacy: .public)")
         // Diagnostics: entry log
         AppLog.appState.info("🧭 commitSelection invoked. mode=\(String(describing: self.mode), privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public) isVisible=\(self.isSwitcherVisible, privacy: .public) apps=\(self.visibleApps.count, privacy: .public) windows=\(self.visibleWindows.count, privacy: .public)")
         
@@ -163,12 +173,14 @@ class AppState: ObservableObject {
         case .perWindow:
             commitWindowSelection()
         }
+        self.activationID = nil
     }
     
     func cancelSelection() {
         self.isSwitcherVisible = false
         if let w = self.pendingOpenWorkItem { w.cancel(); self.pendingOpenWorkItem = nil }
         self.pendingOpenGateToken = nil
+        self.activationID = nil
         self.stopCommandReleaseWatchdog()
         // Optional: Return focus to previousApp if needed
     }

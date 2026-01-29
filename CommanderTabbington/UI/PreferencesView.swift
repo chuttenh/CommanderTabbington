@@ -13,6 +13,7 @@ struct PreferencesView: View {
 //    @AppStorage("IncludeMinimizedApps") private var includeMinimizedApps: Bool = true
     @AppStorage("HiddenAppsPlacement") private var hiddenPlacementRaw: Int = PlacementPreference.normal.rawValue
     @AppStorage("MinimizedAppsPlacement") private var minimizedPlacementRaw: Int = PlacementPreference.normal.rawValue
+    @AppStorage("NoWindowAppsPlacement") private var noWindowPlacementRaw: Int = PlacementPreference.atEnd.rawValue
     @AppStorage("switcherOpenDelayMS") private var switcherOpenDelayMS: Int = 100
     
     var body: some View {
@@ -81,6 +82,16 @@ struct PreferencesView: View {
                 .onChange(of: minimizedPlacementRaw) { _ in
                     AppLog.preferences.info("Preference changed: MinimizedAppsPlacement = \(minimizedPlacementRaw, privacy: .public)")
                 }
+
+                Picker("Apps with no windows", selection: $noWindowPlacementRaw) {
+                    Text("Normal").tag(PlacementPreference.normal.rawValue)
+                    Text("At the end").tag(PlacementPreference.atEnd.rawValue)
+                    Text("Exclude").tag(PlacementPreference.exclude.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: noWindowPlacementRaw) { _ in
+                    AppLog.preferences.info("Preference changed: NoWindowAppsPlacement = \(noWindowPlacementRaw, privacy: .public)")
+                }
             }
             
             Section(header: Text("Layout")) {
@@ -118,6 +129,6 @@ struct PreferencesView: View {
             }
         }
         .padding(20)
-        .frame(width: 350, height: 260)
+        .frame(width: 350, height: 300)
     }
 }
