@@ -21,6 +21,8 @@ class InputListener {
     // The tap must be stored as a CFMachPort
     var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var tapRunLoop: CFRunLoop?
+    private var tapThread: Thread?
     private var localEventMonitor: Any?
     private var commandReleasePoller: DispatchSourceTimer?
     private let commandReleaseQueue = DispatchQueue(label: "InputListener.commandReleasePoller")
@@ -160,16 +162,29 @@ class InputListener {
                 }
             }
             #endif
-            
+            self.startEventTapThread()
+        }
+    }
+
+    private func startEventTapThread() {
+        if tapThread != nil {
+            return
+        }
+
+        let thread = Thread { [weak self] in
+            guard let self = self else { return }
+            Thread.current.name = "InputListener.EventTap"
+            Thread.current.qualityOfService = .userInteractive
+
             // 1. EVENT MASK
             // We listen only for KeyDown, KeyUp, and FlagsChanged (keyboard-only).
             let mask: CGEventMask = (CGEventMask(1) << CGEventType.keyDown.rawValue) |
                                     (CGEventMask(1) << CGEventType.keyUp.rawValue) |
                                     (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
-            
+
             // 2. CREATE TAP
             let tapOptions: CGEventTapOptions = self.suppressionEnabled ? .defaultTap : .listenOnly
-            
+
             var createdTap: CFMachPort? = nil
 
             // Try HID-level tap first for reliability; fall back to Session-level.
@@ -202,26 +217,35 @@ class InputListener {
                     AppLog.input.debug("\(self.suppressionEnabled ? "🧭 Using Session-level event tap (suppression enabled)." : "👂 Using Session-level event tap (listen-only, no suppression).")")
                 }
             }
-            
+
             guard let tap = createdTap else {
                 AppLog.input.fault("❌ Could not create event tap. Check Accessibility and Input Monitoring permissions. If running under Xcode, add Xcode to Input Monitoring.")
                 if AXIsProcessTrusted() && !CGPreflightListenEventAccess() {
-                    self.presentInputMonitoringAlertIfNeeded()
+                    DispatchQueue.main.async { [weak self] in
+                        self?.presentInputMonitoringAlertIfNeeded()
+                    }
                 }
                 return
             }
-            
+
             self.eventTap = tap
-            
-            // 3. ATTACH TO MAIN RUNLOOP
+
+            // 3. ATTACH TO THREAD RUNLOOP
             let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
             self.runLoopSource = source
-            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-            
+            let runLoop = CFRunLoopGetCurrent()
+            self.tapRunLoop = runLoop
+            CFRunLoopAddSource(runLoop, source, .commonModes)
+
             // 4. ENABLE
             CGEvent.tapEnable(tap: tap, enable: true)
-            AppLog.input.info("✅ Input Listener attached (Session Level). Waiting for events...")
+            AppLog.input.info("✅ Input Listener attached (EventTap thread). Waiting for events...")
+
+            CFRunLoopRun()
         }
+
+        tapThread = thread
+        thread.start()
     }
 
     private func presentInputMonitoringAlertIfNeeded() {
@@ -245,12 +269,23 @@ class InputListener {
     }
     
     func stop() {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            if let source = runLoopSource {
-                CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        if let runLoop = tapRunLoop {
+            CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) { [weak self] in
+                guard let self = self else { return }
+                if let tap = self.eventTap {
+                    CGEvent.tapEnable(tap: tap, enable: false)
+                }
+                if let source = self.runLoopSource {
+                    CFRunLoopRemoveSource(runLoop, source, .commonModes)
+                }
+                self.eventTap = nil
+                self.runLoopSource = nil
             }
+            CFRunLoopStop(runLoop)
+            CFRunLoopWakeUp(runLoop)
         }
+        tapRunLoop = nil
+        tapThread = nil
         // Diagnostics cleanup
         if let m = globalKeyMonitor { NSEvent.removeMonitor(m); globalKeyMonitor = nil }
         if let m = localEventMonitor { NSEvent.removeMonitor(m); localEventMonitor = nil }
