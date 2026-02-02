@@ -27,6 +27,8 @@ class AppState: ObservableObject {
     private let commandReleaseWatchdogQueue = DispatchQueue(label: "AppState.commandReleaseWatchdog")
     private var commandReleasedSince: CFAbsoluteTime?
     private var activationID: String?
+    private let refreshQueue = DispatchQueue(label: "AppState.refreshQueue", qos: .userInitiated)
+    private var refreshToken: UUID?
     
     init() {
         // Initialize mode from user defaults (default: perApp)
@@ -65,35 +67,40 @@ class AppState: ObservableObject {
                     guard let self = self else { return }
                     guard self.pendingOpenGateToken == gateToken else { return }
                     let refreshStart = CFAbsoluteTimeGetCurrent()
-                    self.refreshCurrentList()
-                    let refreshElapsedMS = (CFAbsoluteTimeGetCurrent() - refreshStart) * 1000.0
-                    if self.visibleApps.isEmpty && self.visibleWindows.isEmpty {
-                        AppLog.appState.log("⚠️ No apps or windows available to show in switcher.")
-                    }
-                    // Preselect the second entry (index 1) by default
-                    let count: Int = (self.mode == .perApp) ? self.visibleApps.count : self.visibleWindows.count
-                    self.selectedIndex = (count > 1) ? 1 : 0
-
-                    self.applySelectionForCurrentMode()
-                    let totalElapsedMS = (CFAbsoluteTimeGetCurrent() - activationStart) * 1000.0
-                    AppLog.appState.info("🧭 CmdTab prepare id=\(activationID, privacy: .public) refreshMs=\(refreshElapsedMS, privacy: .public) totalMs=\(totalElapsedMS, privacy: .public) apps=\(self.visibleApps.count, privacy: .public) windows=\(self.visibleWindows.count, privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public)")
-
-                    // Schedule showing the overlay after the configured delay
-                    let delayMS = UserDefaults.standard.object(forKey: "switcherOpenDelayMS") as? Int ?? 100
-                    var workItem: DispatchWorkItem?
-                    workItem = DispatchWorkItem { [weak self] in
+                    self.refreshCurrentList { [weak self] appsCount, windowsCount in
                         guard let self = self else { return }
-                        // Ensure this is still the active pending item; if it was canceled or superseded, do nothing
-                    guard self.pendingOpenWorkItem === workItem else { return }
-                    self.isSwitcherVisible = true
-                    self.startCommandReleaseWatchdog()
-                    self.pendingOpenWorkItem = nil
-                    self.pendingOpenGateToken = nil
-                    AppLog.appState.info("🔎 Switcher opened (delayed). apps=\(self.visibleApps.count, privacy: .public) windows=\(self.visibleWindows.count, privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public)")
-                }
-                    if let wi = workItem {
-                        self.pendingOpenWorkItem = wi
-                        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(max(0, delayMS)), execute: wi)
+                        guard self.pendingOpenGateToken == gateToken else { return }
+                        if appsCount == 0 && windowsCount == 0 {
+                            AppLog.appState.log("⚠️ No apps or windows available to show in switcher.")
+                        }
+                        // Preselect the second entry (index 1) by default
+                        let count: Int = (self.mode == .perApp) ? appsCount : windowsCount
+                        self.selectedIndex = (count > 1) ? 1 : 0
+
+                        self.applySelectionForCurrentMode()
+                        let refreshElapsedMS = (CFAbsoluteTimeGetCurrent() - refreshStart) * 1000.0
+                        let totalElapsedMS = (CFAbsoluteTimeGetCurrent() - activationStart) * 1000.0
+                        AppLog.appState.info("🧭 CmdTab prepare id=\(activationID, privacy: .public) refreshMs=\(refreshElapsedMS, privacy: .public) totalMs=\(totalElapsedMS, privacy: .public) apps=\(appsCount, privacy: .public) windows=\(windowsCount, privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public)")
+
+                        // Schedule showing the overlay after the configured delay from activation start
+                        let delayMS = UserDefaults.standard.object(forKey: "switcherOpenDelayMS") as? Int ?? 100
+                        let openDeadline = activationStart + (Double(delayMS) / 1000.0)
+                        let remainingMS = max(0, Int((openDeadline - CFAbsoluteTimeGetCurrent()) * 1000.0))
+                        var workItem: DispatchWorkItem?
+                        workItem = DispatchWorkItem { [weak self] in
+                            guard let self = self else { return }
+                            // Ensure this is still the active pending item; if it was canceled or superseded, do nothing
+                            guard self.pendingOpenWorkItem === workItem else { return }
+                            self.isSwitcherVisible = true
+                            self.startCommandReleaseWatchdog()
+                            self.pendingOpenWorkItem = nil
+                            self.pendingOpenGateToken = nil
+                            AppLog.appState.info("🔎 Switcher opened (delayed). apps=\(self.visibleApps.count, privacy: .public) windows=\(self.visibleWindows.count, privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public)")
+                        }
+                        if let wi = workItem {
+                            self.pendingOpenWorkItem = wi
+                            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(remainingMS), execute: wi)
+                        }
                     }
                 }
 
@@ -151,7 +158,7 @@ class AppState: ObservableObject {
         AppLog.appState.info("🧭 commitSelection invoked. mode=\(String(describing: self.mode), privacy: .public) selectedIndex=\(self.selectedIndex, privacy: .public) isVisible=\(self.isSwitcherVisible, privacy: .public) apps=\(self.visibleApps.count, privacy: .public) windows=\(self.visibleWindows.count, privacy: .public)")
         
         // Allow commit even if the UI hasn't appeared yet, as long as an open is pending
-        let hadPendingOpen = (self.pendingOpenWorkItem != nil)
+        let hadPendingOpen = (self.pendingOpenWorkItem != nil) || (self.pendingOpenGateToken != nil)
         if hadPendingOpen {
             self.pendingOpenWorkItem?.cancel()
             self.pendingOpenWorkItem = nil
@@ -162,18 +169,25 @@ class AppState: ObservableObject {
             AppLog.appState.log("⚠️ commitSelection ignored: switcher not visible and no pending open")
             return
         }
-        
+
+        if !self.isSwitcherVisible && hadPendingOpen && !hasItemsForCurrentMode() {
+            AppLog.appState.debug("⏳ Deferred commit: refreshing list before activation")
+            refreshCurrentList { [weak self] _, _ in
+                guard let self = self else { return }
+                guard !self.isSwitcherVisible else { return }
+                self.applyDefaultSelectionForPendingActivation()
+                self.performCommitSelection()
+            }
+            return
+        }
+
         if self.isSwitcherVisible { self.isSwitcherVisible = false }
         self.stopCommandReleaseWatchdog()
         AppLog.appState.debug("🫥 Hiding switcher overlay before activation")
-        
-        switch self.mode {
-        case .perApp:
-            commitAppSelection()
-        case .perWindow:
-            commitWindowSelection()
+        if !self.isSwitcherVisible && hadPendingOpen {
+            self.applyDefaultSelectionForPendingActivation()
         }
-        self.activationID = nil
+        performCommitSelection()
     }
     
     func cancelSelection() {
@@ -193,52 +207,68 @@ class AppState: ObservableObject {
     
     // MARK: - Private Helpers
     
-    private func refreshCurrentList() {
-        switch self.mode {
-        case .perApp:
-            let prevID = self.selectedAppID
-            var apps = WindowManager.shared.getOpenApps()
-            // getOpenApps() returns MRU-sorted and tiered; group tiers while preserving MRU within each tier
-            apps.groupByTierPreservingOrder()
+    private func refreshCurrentList(completion: ((_ appsCount: Int, _ windowsCount: Int) -> Void)? = nil) {
+        let token = UUID()
+        self.refreshToken = token
+        let mode = self.mode
+        let selectedIndex = self.selectedIndex
+        let prevAppID = self.selectedAppID
+        let prevWindowID = self.selectedWindowID
 
-            let newSelectedID: pid_t? = {
-                if let prev = prevID, apps.contains(where: { $0.id == prev }) { return prev }
-                let count = apps.count
-                if count == 0 { return nil }
-                let fallbackIndex = min(self.selectedIndex, count - 1)
-                return apps[fallbackIndex].id
-            }()
-            let newIndex: Int = {
-                if let sel = newSelectedID, let idx = apps.firstIndex(where: { $0.id == sel }) { return idx }
-                return 0
-            }()
+        refreshQueue.async { [weak self] in
+            guard let self = self else { return }
+            switch mode {
+            case .perApp:
+                var apps = WindowManager.shared.getOpenApps()
+                // getOpenApps() returns MRU-sorted and tiered; group tiers while preserving MRU within each tier
+                apps.groupByTierPreservingOrder()
 
-            // Publish list then identity and index
-            self.visibleApps = apps
-            self.selectedAppID = newSelectedID
-            self.selectedIndex = newIndex
-        case .perWindow:
-            let prevID = self.selectedWindowID
-            var windows = WindowManager.shared.getOpenWindows()
-            // getOpenWindows() returns MRU-sorted and tiered; group tiers while preserving MRU within each tier
-            windows.groupByTierPreservingOrder()
+                let newSelectedID: pid_t? = {
+                    if let prev = prevAppID, apps.contains(where: { $0.id == prev }) { return prev }
+                    let count = apps.count
+                    if count == 0 { return nil }
+                    let fallbackIndex = min(selectedIndex, count - 1)
+                    return apps[fallbackIndex].id
+                }()
+                let newIndex: Int = {
+                    if let sel = newSelectedID, let idx = apps.firstIndex(where: { $0.id == sel }) { return idx }
+                    return 0
+                }()
 
-            let newSelectedID: CGWindowID? = {
-                if let prev = prevID, windows.contains(where: { $0.id == prev }) { return prev }
-                let count = windows.count
-                if count == 0 { return nil }
-                let fallbackIndex = min(self.selectedIndex, count - 1)
-                return windows[fallbackIndex].id
-            }()
-            let newIndex: Int = {
-                if let sel = newSelectedID, let idx = windows.firstIndex(where: { $0.id == sel }) { return idx }
-                return 0
-            }()
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    guard self.refreshToken == token else { return }
+                    self.visibleApps = apps
+                    self.selectedAppID = newSelectedID
+                    self.selectedIndex = newIndex
+                    completion?(apps.count, 0)
+                }
+            case .perWindow:
+                var windows = WindowManager.shared.getOpenWindows()
+                // getOpenWindows() returns MRU-sorted and tiered; group tiers while preserving MRU within each tier
+                windows.groupByTierPreservingOrder()
 
-            // Publish list then identity and index
-            self.visibleWindows = windows
-            self.selectedWindowID = newSelectedID
-            self.selectedIndex = newIndex
+                let newSelectedID: CGWindowID? = {
+                    if let prev = prevWindowID, windows.contains(where: { $0.id == prev }) { return prev }
+                    let count = windows.count
+                    if count == 0 { return nil }
+                    let fallbackIndex = min(selectedIndex, count - 1)
+                    return windows[fallbackIndex].id
+                }()
+                let newIndex: Int = {
+                    if let sel = newSelectedID, let idx = windows.firstIndex(where: { $0.id == sel }) { return idx }
+                    return 0
+                }()
+
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    guard self.refreshToken == token else { return }
+                    self.visibleWindows = windows
+                    self.selectedWindowID = newSelectedID
+                    self.selectedIndex = newIndex
+                    completion?(0, windows.count)
+                }
+            }
         }
     }
 
@@ -259,6 +289,31 @@ class AppState: ObservableObject {
             }
             self.selectedAppID = nil
         }
+    }
+
+    private func hasItemsForCurrentMode() -> Bool {
+        switch mode {
+        case .perApp:
+            return !visibleApps.isEmpty
+        case .perWindow:
+            return !visibleWindows.isEmpty
+        }
+    }
+
+    private func applyDefaultSelectionForPendingActivation() {
+        let count: Int = (mode == .perApp) ? visibleApps.count : visibleWindows.count
+        selectedIndex = (count > 1) ? 1 : 0
+        applySelectionForCurrentMode()
+    }
+
+    private func performCommitSelection() {
+        switch self.mode {
+        case .perApp:
+            commitAppSelection()
+        case .perWindow:
+            commitWindowSelection()
+        }
+        self.activationID = nil
     }
 
     private func startCommandReleaseWatchdog() {

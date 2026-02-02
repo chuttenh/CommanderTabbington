@@ -145,7 +145,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             (NSWorkspace.didUnhideApplicationNotification, { [weak self] _ in self?.refreshIfVisible() }),
             (NSWorkspace.didActivateApplicationNotification, { [weak self] _ in self?.refreshIfVisible() }),
             (NSWorkspace.didLaunchApplicationNotification, { [weak self] _ in self?.refreshIfVisible() }),
-            (NSWorkspace.didTerminateApplicationNotification, { [weak self] _ in self?.refreshIfVisible() })
+            (NSWorkspace.didTerminateApplicationNotification, { [weak self] _ in self?.refreshIfVisible() }),
+            (NSWorkspace.didWakeNotification, { [weak self] _ in
+                WindowManager.shared.noteSystemWake()
+                self?.refreshIfVisible()
+            })
         ]
         for (name, handler) in handlers {
             let token = center.addObserver(forName: name, object: nil, queue: .main, using: handler)

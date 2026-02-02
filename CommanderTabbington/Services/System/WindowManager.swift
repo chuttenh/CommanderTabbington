@@ -13,6 +13,20 @@ class WindowManager {
     // Singleton for easy access
     static let shared = WindowManager()
     private init() {}
+
+    private let wakeGraceSeconds: CFAbsoluteTime = 3.0
+    private var lastWakeTime: CFAbsoluteTime?
+    private var lastWakeSkipLoggedAt: CFAbsoluteTime?
+
+    func noteSystemWake() {
+        lastWakeTime = CFAbsoluteTimeGetCurrent()
+        lastWakeSkipLoggedAt = nil
+    }
+
+    private func shouldSkipAXDueToWake() -> Bool {
+        guard let lastWakeTime = lastWakeTime else { return false }
+        return (CFAbsoluteTimeGetCurrent() - lastWakeTime) < wakeGraceSeconds
+    }
     
     
     /// Fetches a list of all relevant open windows.
@@ -37,6 +51,12 @@ class WindowManager {
         let hiddenPref = PreferenceUtils.hiddenPlacement()
         let minimizedPref = PreferenceUtils.minimizedPlacement()
         
+        let skipAX = shouldSkipAXDueToWake()
+        if skipAX && lastWakeSkipLoggedAt == nil {
+            lastWakeSkipLoggedAt = CFAbsoluteTimeGetCurrent()
+            AppLog.app.info("🛌 Skipping AX window merge for a short grace period after wake.")
+        }
+
         // 2. Query Core Graphics
         // This returns a CFArray of CFDictionaries.
         let cgListStart = CFAbsoluteTimeGetCurrent()
@@ -116,7 +136,7 @@ class WindowManager {
         // let includeMinimized = UserDefaults.standard.object(forKey: "IncludeMinimizedApps") as? Bool ?? true
 
         // If either preference allows additional windows beyond on-screen ones, merge from Accessibility
-        if hiddenPref != .exclude || minimizedPref != .exclude {
+        if (hiddenPref != .exclude || minimizedPref != .exclude) && !skipAX {
             let axMergeStart = CFAbsoluteTimeGetCurrent()
             let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
             for appRef in running {
@@ -226,6 +246,11 @@ class WindowManager {
         let minimizedPref = PreferenceUtils.minimizedPlacement()
         let noWindowPref = PreferenceUtils.noWindowPlacement()
         let debugTiering = UserDefaults.standard.object(forKey: "DebugTiering") as? Bool ?? false
+        let skipAX = shouldSkipAXDueToWake()
+        if skipAX && lastWakeSkipLoggedAt == nil {
+            lastWakeSkipLoggedAt = CFAbsoluteTimeGetCurrent()
+            AppLog.app.info("🛌 Skipping AX app/window summaries for a short grace period after wake.")
+        }
         let debugTieringAppName = UserDefaults.standard.string(forKey: "DebugTieringAppName")
         if debugTiering {
             AppLog.app.info("🧭 Tiering prefs hidden=\(hiddenPref.rawValue, privacy: .public) minimized=\(minimizedPref.rawValue, privacy: .public) noWindow=\(noWindowPref.rawValue, privacy: .public)")
@@ -262,7 +287,7 @@ class WindowManager {
 
             let pid = appRef.processIdentifier
             let visibleWindowCount = groupedVisible[pid]?.count ?? 0
-            let axSummary = axStandardWindowSummary(for: appRef, debugAppName: debugTieringAppName)
+            let axSummary = skipAX ? nil : axStandardWindowSummary(for: appRef, debugAppName: debugTieringAppName)
             let hasAnyWindows: Bool
             var hasVisibleUserWindows: Bool
             if let summary = axSummary {

@@ -32,6 +32,7 @@ Non-goals (for now):
 - State: `AppState` is the single source of truth for overlay visibility, mode, lists, and selection index. It defers overlay appearance by a configurable delay to avoid flicker on quick taps.
 - Startup ordering: first activation waits for `AppRecents.ensureSeeded` and `WindowRecents.ensureSeeded` before showing the overlay to avoid MRU races.
 - Enumeration: `WindowManager` builds lists of `SystemWindow` and `SystemApp` using Core Graphics (`CGWindowListCopyWindowInfo`) and augments with Accessibility for hidden/minimized windows when preferences allow.
+- Enumeration is executed off the main thread and published back to the UI thread; immediately after wake, `WindowManager` skips AX merges/summaries for a short grace period to avoid post-sleep stalls.
 - Ordering: `AppRecents` and `WindowRecents` maintain MRU lists and provide sort helpers. When MRU is missing, they derive a best-effort ordering from WindowServer z-order lists.
 - UI: `SwitcherView` (SwiftUI) renders a grid of `AppCardView` items inside a glassy background, embedded in a borderless, non-activating `NSPanel` created by `AppDelegate`.
 - Commit: On key release, `AppState.commitSelection` hides the overlay and triggers `AccessibilityService` to activate the selected app or focus the specific window.
