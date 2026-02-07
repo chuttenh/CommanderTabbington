@@ -1,6 +1,6 @@
 // AI_CONTEXT — Commander Tabbington
 
-// Last updated: 2026-01-16
+// Last updated: 2026-02-06
 
 // This document is the authoritative context for AI coding assistants working on this repository in Xcode. It summarizes the project’s purpose, goals, conventions, and code organization, and provides concrete guidance for how an assistant should propose and apply changes.
 
@@ -28,14 +28,15 @@ Non-goals (for now):
 ## Architecture and data flow
 - Entry point: `CommanderTabbingtonApp` delegates to `AppDelegate` for lifecycle and UI orchestration.
 - Input: A keyboard listener (see “Referenced components” below) detects the hotkey sequence and calls `AppState.handleUserActivation`.
-- Input robustness: InputListener includes a command-release watchdog and tap-disabled bailout to avoid stuck overlays during event-loop stalls.
-- State: `AppState` is the single source of truth for overlay visibility, mode, lists, and selection index. It defers overlay appearance by a configurable delay to avoid flicker on quick taps.
+- Input robustness: InputListener includes a command-release watchdog and tap recovery/health monitor to re-enable disabled taps under load without canceling the overlay.
+- State: `AppState` is the single source of truth for overlay visibility, mode, lists, and selection index. It defers overlay appearance by a configurable delay to avoid flicker on quick taps. Under heavy load it performs a fast, AX-skipping refresh first, then a full refresh to refine hidden/minimized/no-window data while preserving selection to avoid jumpy backtracking.
 - Startup ordering: first activation waits for `AppRecents.ensureSeeded` and `WindowRecents.ensureSeeded` before showing the overlay to avoid MRU races.
 - Enumeration: `WindowManager` builds lists of `SystemWindow` and `SystemApp` using Core Graphics (`CGWindowListCopyWindowInfo`) and augments with Accessibility for hidden/minimized windows when preferences allow.
 - Enumeration is executed off the main thread and published back to the UI thread; immediately after wake, `WindowManager` skips AX merges/summaries for a short grace period to avoid post-sleep stalls.
+- Enumeration fast path: callers may request a skip-AX pass for responsiveness; follow with a full pass to refine tiers.
 - Ordering: `AppRecents` and `WindowRecents` maintain MRU lists and provide sort helpers. When MRU is missing, they derive a best-effort ordering from WindowServer z-order lists.
 - UI: `SwitcherView` (SwiftUI) renders a grid of `AppCardView` items inside a glassy background, embedded in a borderless, non-activating `NSPanel` created by `AppDelegate`.
-- Commit: On key release, `AppState.commitSelection` hides the overlay and triggers `AccessibilityService` to activate the selected app or focus the specific window.
+- Commit: On key release, `AppState.commitSelection` hides the overlay, then dispatches activation/focus work off the main thread to keep UI responsive under load.
 - Sync: `AppDelegate` observes NSWorkspace notifications (launch, terminate, hide/unhide, activate) and preferences changes to refresh lists and recompute overlay size when relevant.
 
 

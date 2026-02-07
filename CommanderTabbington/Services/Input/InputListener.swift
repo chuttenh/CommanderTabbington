@@ -29,6 +29,11 @@ class InputListener {
     private var commandReleaseWatchdog: DispatchSourceTimer?
     private let commandReleaseWatchdogQueue = DispatchQueue(label: "InputListener.commandReleaseWatchdog")
     private var commandReleasedSince: CFAbsoluteTime?
+    private var tapRestartPending: Bool = false
+    private var lastTapRestartAt: CFAbsoluteTime = 0
+    private var tapHealthTimer: DispatchSourceTimer?
+    private let tapHealthQueue = DispatchQueue(label: "InputListener.tapHealth")
+    private var lastTapIssueAt: CFAbsoluteTime = 0
     
     #if DEBUG
         var enableDiagnostics: Bool = true
@@ -75,12 +80,9 @@ class InputListener {
     }
 
     fileprivate func handleTapDisabled() {
-        stopCommandReleasePoller()
-        stopCommandReleaseWatchdog()
-        isCommandPressed = false
-        DispatchQueue.main.async { [weak self] in
-            self?.resolveAppState()?.cancelSelection()
-        }
+        // Keep the overlay alive if it's already visible; attempt to recover the tap.
+        // Canceling here can cause the switcher to disappear under load.
+        self.requestTapRecovery(reason: "tapDisabled")
     }
 
     
@@ -183,42 +185,7 @@ class InputListener {
                                     (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
 
             // 2. CREATE TAP
-            let tapOptions: CGEventTapOptions = self.suppressionEnabled ? .defaultTap : .listenOnly
-
-            var createdTap: CFMachPort? = nil
-
-            // Try HID-level tap first for reliability; fall back to Session-level.
-            createdTap = CGEvent.tapCreate(
-                tap: .cghidEventTap,
-                place: .headInsertEventTap,
-                options: tapOptions,
-                eventsOfInterest: mask,
-                callback: inputCallback,
-                userInfo: Unmanaged.passUnretained(self).toOpaque()
-            )
-
-            if let _ = createdTap {
-                self.usingHIDTap = true
-                if self.enableDiagnostics {
-                    AppLog.input.debug("\(self.suppressionEnabled ? "🧲 Using HID-level event tap (suppression enabled)." : "👂 Using HID-level event tap (listen-only, no suppression).")")
-                }
-            } else {
-                AppLog.input.log("ℹ️ HID-level tap failed. Falling back to Session-level tap.")
-                createdTap = CGEvent.tapCreate(
-                    tap: .cgSessionEventTap,
-                    place: .headInsertEventTap,
-                    options: tapOptions,
-                    eventsOfInterest: mask,
-                    callback: inputCallback,
-                    userInfo: Unmanaged.passUnretained(self).toOpaque()
-                )
-                self.usingHIDTap = false
-                if self.enableDiagnostics {
-                    AppLog.input.debug("\(self.suppressionEnabled ? "🧭 Using Session-level event tap (suppression enabled)." : "👂 Using Session-level event tap (listen-only, no suppression).")")
-                }
-            }
-
-            guard let tap = createdTap else {
+            guard let tap = self.createEventTap(mask: mask) else {
                 AppLog.input.fault("❌ Could not create event tap. Check Accessibility and Input Monitoring permissions. If running under Xcode, add Xcode to Input Monitoring.")
                 if AXIsProcessTrusted() && !CGPreflightListenEventAccess() {
                     DispatchQueue.main.async { [weak self] in
@@ -293,6 +260,8 @@ class InputListener {
         postStartDiagnosticTimer?.invalidate(); postStartDiagnosticTimer = nil
         stopCommandReleasePoller()
         stopCommandReleaseWatchdog()
+        tapRestartPending = false
+        stopTapHealthMonitor()
     }
     
     func noteKeyboardEventReceived() {
@@ -371,6 +340,127 @@ class InputListener {
         }
         commandReleasedSince = nil
     }
+
+    private func startTapHealthMonitor() {
+        guard tapHealthTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: tapHealthQueue)
+        timer.schedule(deadline: .now() + .milliseconds(250), repeating: .milliseconds(500), leeway: .milliseconds(100))
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            if let tap = self.eventTap {
+                if !CFMachPortIsValid(tap) {
+                    self.requestTapRecovery(reason: "tapInvalid")
+                    return
+                }
+                // Re-enable periodically to recover from timeout without waiting for the next event.
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+
+            let now = CFAbsoluteTimeGetCurrent()
+            if now - self.lastTapIssueAt >= 10.0 {
+                self.stopTapHealthMonitor()
+            }
+        }
+        tapHealthTimer = timer
+        timer.resume()
+    }
+
+    private func stopTapHealthMonitor() {
+        if let timer = tapHealthTimer {
+            timer.cancel()
+            tapHealthTimer = nil
+        }
+    }
+
+    private func createEventTap(mask: CGEventMask) -> CFMachPort? {
+        let tapOptions: CGEventTapOptions = self.suppressionEnabled ? .defaultTap : .listenOnly
+
+        // Try HID-level tap first for reliability; fall back to Session-level.
+        if let tap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: tapOptions,
+            eventsOfInterest: mask,
+            callback: inputCallback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) {
+            usingHIDTap = true
+            if enableDiagnostics {
+                AppLog.input.debug("\(self.suppressionEnabled ? "🧲 Using HID-level event tap (suppression enabled)." : "👂 Using HID-level event tap (listen-only, no suppression).")")
+            }
+            return tap
+        }
+
+        AppLog.input.log("ℹ️ HID-level tap failed. Falling back to Session-level tap.")
+        if let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: tapOptions,
+            eventsOfInterest: mask,
+            callback: inputCallback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) {
+            usingHIDTap = false
+            if enableDiagnostics {
+                AppLog.input.debug("\(self.suppressionEnabled ? "🧭 Using Session-level event tap (suppression enabled)." : "👂 Using Session-level event tap (listen-only, no suppression).")")
+            }
+            return tap
+        }
+
+        return nil
+    }
+
+    fileprivate func requestTapRecovery(reason: String) {
+        let now = CFAbsoluteTimeGetCurrent()
+        lastTapIssueAt = now
+        startTapHealthMonitor()
+        if tapRestartPending {
+            return
+        }
+        if now - lastTapRestartAt < 0.5 {
+            return
+        }
+        tapRestartPending = true
+        lastTapRestartAt = now
+
+        guard let runLoop = tapRunLoop else {
+            tapRestartPending = false
+            startEventTapThread()
+            return
+        }
+
+        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) { [weak self] in
+            guard let self = self else { return }
+            self.tapRestartPending = false
+            AppLog.input.log("🛠️ Restarting event tap (\(reason, privacy: .public)).")
+
+            if let tap = self.eventTap {
+                CGEvent.tapEnable(tap: tap, enable: false)
+            }
+            if let source = self.runLoopSource {
+                CFRunLoopRemoveSource(runLoop, source, .commonModes)
+                self.runLoopSource = nil
+            }
+            self.eventTap = nil
+
+            let mask: CGEventMask = (CGEventMask(1) << CGEventType.keyDown.rawValue) |
+                                    (CGEventMask(1) << CGEventType.keyUp.rawValue) |
+                                    (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
+
+            guard let newTap = self.createEventTap(mask: mask) else {
+                AppLog.input.error("❌ Failed to recreate event tap during recovery.")
+                return
+            }
+
+            let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, newTap, 0)
+            self.runLoopSource = source
+            CFRunLoopAddSource(runLoop, source, .commonModes)
+            self.eventTap = newTap
+            CGEvent.tapEnable(tap: newTap, enable: true)
+        }
+
+        CFRunLoopWakeUp(runLoop)
+    }
 }
 
 // MARK: - Global Callback
@@ -387,13 +477,13 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         if let tap = listener.eventTap {
             CGEvent.tapEnable(tap: tap, enable: true)
         }
-        listener.handleTapDisabled()
+        let reason = (type == .tapDisabledByTimeout) ? "timeout" : "userInput"
+        listener.requestTapRecovery(reason: reason)
         return Unmanaged.passUnretained(event)
     }
 
     if type == .keyDown {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        listener.noteKeyboardEventReceived()
         
         let flags = event.flags
         let hasCommand = (flags.rawValue & CGEventFlags.maskCommand.rawValue) != 0
@@ -404,6 +494,7 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
         
         // Check for Cmd+Tab (or Cmd+Shift+Tab) and suppress
         if cmdActive && keyCode == listener.kVK_Tab {
+            listener.noteKeyboardEventReceived()
             if listener.enableDiagnostics {
                 AppLog.input.debug("🚀 Detected Cmd+Tab (suppressing, HID tap: \(listener.usingHIDTap, privacy: .public)).")
                 AppLog.input.debug("📣 Invoking appState.handleUserActivation from InputListener.")
@@ -428,7 +519,9 @@ func inputCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, re
             return nil
         }
         
-        AppLog.input.debug("⌨️ Key Down: \(keyCode, privacy: .public)")
+        if listener.enableDiagnostics {
+            AppLog.input.debug("⌨️ Key Down: \(keyCode, privacy: .public)")
+        }
     }
     
     if type == .keyUp {

@@ -30,7 +30,7 @@ class WindowManager {
     
     
     /// Fetches a list of all relevant open windows.
-    func getOpenWindows() -> [SystemWindow] {
+    func getOpenWindows(skipAXMerge: Bool = false) -> [SystemWindow] {
         let totalStart = CFAbsoluteTimeGetCurrent()
         let slowThresholdMS = 100.0
         let logSlowStep: (_ label: String, _ start: CFAbsoluteTime, _ extra: String?) -> Void = { label, start, extra in
@@ -51,7 +51,7 @@ class WindowManager {
         let hiddenPref = PreferenceUtils.hiddenPlacement()
         let minimizedPref = PreferenceUtils.minimizedPlacement()
         
-        let skipAX = shouldSkipAXDueToWake()
+        let skipAX = skipAXMerge || shouldSkipAXDueToWake()
         if skipAX && lastWakeSkipLoggedAt == nil {
             lastWakeSkipLoggedAt = CFAbsoluteTimeGetCurrent()
             AppLog.app.info("🛌 Skipping AX window merge for a short grace period after wake.")
@@ -226,7 +226,7 @@ class WindowManager {
     }
     
     /// Returns one entry per running app, including optional no-window apps based on preferences.
-    func getOpenApps() -> [SystemApp] {
+    func getOpenApps(skipAX: Bool = false) -> [SystemApp] {
         let totalStart = CFAbsoluteTimeGetCurrent()
         let slowThresholdMS = 100.0
         let logSlowStep: (_ label: String, _ start: CFAbsoluteTime, _ extra: String?) -> Void = { label, start, extra in
@@ -240,14 +240,14 @@ class WindowManager {
         }
 
         // Visible windows are used to compute counts and recent ordering
-        let windows = getOpenWindows()
+        let windows = getOpenWindows(skipAXMerge: skipAX)
         
         let hiddenPref = PreferenceUtils.hiddenPlacement()
         let minimizedPref = PreferenceUtils.minimizedPlacement()
         let noWindowPref = PreferenceUtils.noWindowPlacement()
         let debugTiering = UserDefaults.standard.object(forKey: "DebugTiering") as? Bool ?? false
-        let skipAX = shouldSkipAXDueToWake()
-        if skipAX && lastWakeSkipLoggedAt == nil {
+        let skipAXNow = skipAX || shouldSkipAXDueToWake()
+        if skipAXNow && lastWakeSkipLoggedAt == nil {
             lastWakeSkipLoggedAt = CFAbsoluteTimeGetCurrent()
             AppLog.app.info("🛌 Skipping AX app/window summaries for a short grace period after wake.")
         }
@@ -259,7 +259,7 @@ class WindowManager {
         // Group windows by owning PID for counts
         // let grouped = Dictionary(grouping: windows, by: { $0.ownerPID })
         let groupedVisible = Dictionary(grouping: windows.filter { $0.tier == .normal }, by: { $0.ownerPID })
-        let windowPresence = buildWindowPresenceByPID()
+        let windowPresence = buildWindowPresenceByPID(includeDesktopElements: skipAXNow)
 
         // Preferences for inclusion
         // let includeHidden = UserDefaults.standard.object(forKey: "IncludeHiddenApps") as? Bool ?? true
@@ -287,8 +287,8 @@ class WindowManager {
 
             let pid = appRef.processIdentifier
             let visibleWindowCount = groupedVisible[pid]?.count ?? 0
-            let axSummary = skipAX ? nil : axStandardWindowSummary(for: appRef, debugAppName: debugTieringAppName)
-            let hasAnyWindows: Bool
+            let axSummary = skipAXNow ? nil : axStandardWindowSummary(for: appRef, debugAppName: debugTieringAppName)
+            var hasAnyWindows: Bool
             var hasVisibleUserWindows: Bool
             if let summary = axSummary {
                 hasAnyWindows = summary.total > 0 || visibleWindowCount > 0
@@ -296,6 +296,16 @@ class WindowManager {
             } else {
                 hasAnyWindows = visibleWindowCount > 0 || (windowPresence[pid] ?? false)
                 hasVisibleUserWindows = visibleWindowCount > 0
+            }
+
+            if skipAXNow {
+                let isFinder = appRef.bundleIdentifier == "com.apple.finder"
+                if isFinder {
+                    // For Finder, desktop elements can cause false "has windows" in fast path.
+                    // Keep behavior consistent with full AX pass: use visible windows only.
+                    hasAnyWindows = visibleWindowCount > 0
+                    hasVisibleUserWindows = visibleWindowCount > 0
+                }
             }
 
             // An app is considered "all minimized" if it's not hidden, has windows, and none are visible
@@ -391,14 +401,24 @@ class WindowManager {
     }
 
     /// Best-effort map of PIDs that have at least one real window (on-screen or off-screen).
-    private func buildWindowPresenceByPID() -> [pid_t: Bool] {
+    private func buildWindowPresenceByPID(includeDesktopElements: Bool = false) -> [pid_t: Bool] {
         var presence: [pid_t: Bool] = [:]
-        let options: CGWindowListOption = [.excludeDesktopElements]
+        let options: CGWindowListOption = includeDesktopElements ? [] : [.excludeDesktopElements]
         guard let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
             return presence
         }
         for entry in infoList {
-            if !shouldInclude(windowInfo: entry) { continue }
+            if includeDesktopElements {
+                // Looser filter: presence-only, so allow non-layer-0 windows to catch desktop elements.
+                if let alpha = entry[kCGWindowAlpha as String] as? Double, alpha < 0.01 { continue }
+                if let boundsDict = entry[kCGWindowBounds as String] as? [String: Any],
+                   let width = boundsDict["Width"] as? Double,
+                   let height = boundsDict["Height"] as? Double {
+                    if width < 50 || height < 50 { continue }
+                }
+            } else {
+                if !shouldInclude(windowInfo: entry) { continue }
+            }
             if let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32 {
                 presence[ownerPID] = true
             }
