@@ -4,7 +4,7 @@
 
 Commander Tabbington (just Tabbington is preferred, or El Commanderino if you're not into the whole brevity thing...) is a lightweight macOS app/window switcher that shows a non-activating overlay with a grid of apps or windows and lets you cycle selection from the keyboard. It favors speed, predictability, and minimal visual noise over thumbnails or live previews.
 
-## Project Status
+### Project Status
 This is exceptionally early-stage software. I built it for personal use and am sharing it in case others find it helpful - expect rough edges. It's also vibe coded up one side and down the other. I know neither Swift nor Cocoa - although I do know about a half dozen other languages and frameworks, so it's not as if I'm flying blind. I'm much more of a debugger than a developer in this case, though.
 
 ## Features
