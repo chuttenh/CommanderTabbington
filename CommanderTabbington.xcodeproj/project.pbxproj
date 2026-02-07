@@ -8,11 +8,15 @@
 
 /* Begin PBXBuildFile section */
 		796A2C5D2F1AB65F00D7B82E /* AGENTS.md in Resources */ = {isa = PBXBuildFile; fileRef = 796A2C5C2F1AB65F00D7B82E /* AGENTS.md */; };
+		79D449CC2F37C38800BC582C /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 79D449CA2F37C38800BC582C /* LICENSE */; };
+		79D449CD2F37C38800BC582C /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 79D449CB2F37C38800BC582C /* README.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		796A2C5C2F1AB65F00D7B82E /* AGENTS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AGENTS.md; sourceTree = "<group>"; };
 		796E71BF2F17482E00D4FF1E /* CommanderTabbington.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CommanderTabbington.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		79D449CA2F37C38800BC582C /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		79D449CB2F37C38800BC582C /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -37,6 +41,8 @@
 		796E71B62F17482E00D4FF1E = {
 			isa = PBXGroup;
 			children = (
+				79D449CA2F37C38800BC582C /* LICENSE */,
+				79D449CB2F37C38800BC582C /* README.md */,
 				796E71C12F17482E00D4FF1E /* CommanderTabbington */,
 				796E71C02F17482E00D4FF1E /* Products */,
 				796A2C5C2F1AB65F00D7B82E /* AGENTS.md */,
@@ -116,6 +122,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				796A2C5D2F1AB65F00D7B82E /* AGENTS.md in Resources */,
+				79D449CC2F37C38800BC582C /* LICENSE in Resources */,
+				79D449CD2F37C38800BC582C /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
