@@ -1,23 +1,25 @@
 # Commander Tabbington
 
+<img src="art/tabbington.png" align="right" width="180" alt="Tabbington" />
+
 Commander Tabbington (just Tabbington is preferred, or El Commanderino if you're not into the whole brevity thing...) is a lightweight macOS app/window switcher that shows a non-activating overlay with a grid of apps or windows and lets you cycle selection from the keyboard. It favors speed, predictability, and minimal visual noise over thumbnails or live previews.
 
 ## Project Status
-This is exceptionally early-stage software. I built it for personal use and am sharing it in case others find it helpful — expect rough edges. It's also vibe coded up one side and down the other. I know neither Swift nor Cocoa - although I do know about a half dozen other languages and frameworks, so it's not as if I'm flying blind. I'm much more of a debugger than a developer in this case, though.
+This is exceptionally early-stage software. I built it for personal use and am sharing it in case others find it helpful - expect rough edges. It's also vibe coded up one side and down the other. I know neither Swift nor Cocoa - although I do know about a half dozen other languages and frameworks, so it's not as if I'm flying blind. I'm much more of a debugger than a developer in this case, though.
 
 ## Features
-- Fast, keyboard-driven switching with a non-activating overlay (doesn’t steal focus).
+- Fast, keyboard-driven switching with a non-activating overlay (doesn't steal focus).
 - App grid view (one icon per app), with an optional per-window mode.
 - Deterministic MRU ordering for predictable cycling.
 - Preference-driven inclusion/exclusion of hidden and/or minimized apps.
 
 ## Why Another Switcher?
-I wanted something that’s:
+I wanted something that's:
 - Open source.
 - Minimal (no thumbnails, no live previews).
 - Decluttered - segregates hidden and minimized apps.
 
-I've found [AltTab](https://alt-tab-macos.netlify.app) to be too buggy for consistent use, and [Contexts](https://contexts.co) hasn't been updated since 2022, lacks a per-app mode, and is commercial. [Witch](https://manytricks.com/witch/) has this weird `.prefPane` thing going, and also didn't provide the modes or configurability that I wanted. But of course your mileage may vary - Tabbington may be just as bad for you as the alternatives were for me!
+I've found [AltTab](https://alt-tab-macos.netlify.app) to be too buggy for consistent use, and [Contexts](https://contexts.co) lacks a per-app mode and is commercial. [Witch](https://manytricks.com/witch/) has this weird `.prefPane` thing going, and also didn't provide the modes or configurability that I wanted. But of course your mileage may vary - Tabbington may be just as bad for you as the alternatives were for me!
 
 ## Design Goals
 - Reduce visual clutter and improve responsiveness.
@@ -43,7 +45,7 @@ Commander Tabbington requires **Accessibility** permission to enumerate and focu
 To enable it:
 1. Open **System Settings** → **Privacy & Security** → **Accessibility**
 2. Add/enable **Commander Tabbington**
-3. Quit and relaunch the app (if it’s already running)
+3. Quit and relaunch the app (if it's already running)
 
 On some systems, Input Monitoring may still be required for global shortcut capture; if event taps fail, the app will prompt you to grant it.
 
@@ -60,7 +62,7 @@ The `art/` directory contains optional artwork you can use for highlights or bra
 Issues and PRs are welcome. I may handle contributions somewhat ad hoc due to limited maintainer bandwidth; if you have a bugfix or improvement, a short, focused PR description is appreciated.
 
 ## Known Limitations
-This has literally only been tested in my own environment. I’ll improve compatibility and edge cases as time allows.
+This has literally only been tested in my own environment. I'll improve compatibility and edge cases as time allows.
 
 ## Contact
 Preferred: GitHub issues. Backup: `chuttenh@gmail.com`.
